@@ -27,6 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 secret_scan = importlib.import_module("secret_scan")
+split = importlib.import_module("split")
 snapshot = importlib.import_module("snapshot")
 autoflow = importlib.import_module("autoflow")
 gitflow = importlib.import_module("gitflow")
@@ -929,9 +930,38 @@ class SecretScanScenarios(TempRoot):
         self.assertEqual(secret_scan.scan(self.root, max_mb=0), [])
 
 
+class SplitScenarios(unittest.TestCase):
+    def test_co_change_clustering(self) -> None:
+        commits = [{"a", "b"}, {"a", "b"}, {"a", "b"}, {"b", "c"}]
+        pairs, support = split.co_change_pairs(commits)
+        self.assertEqual(pairs[("a", "b")], 3)
+        self.assertEqual([g["crates"] for g in split.cluster_crates(pairs, support, jaccard=0.5, min_co=2)],
+                         [["a", "b"]])
+        # 高共现、低相似度：不该聚
+        self.assertEqual(split.cluster_crates({("x", "y"): 3}, {"x": 40, "y": 40}, jaccard=0.5, min_co=2), [])
+
+    def test_closure_and_downstream(self) -> None:
+        plans = [
+            {"crate": "core", "internal_deps": [], "blockers": [], "publish": True, "path": "crates/core"},
+            {"crate": "mid", "internal_deps": ["core"], "blockers": [], "publish": True, "path": "crates/mid"},
+            {"crate": "top", "internal_deps": ["mid"], "blockers": [], "publish": True, "path": "crates/top"},
+        ]
+        plan_map = {p["crate"]: p for p in plans}
+        self.assertEqual(split.closure_of(plan_map, ["top"]), ["core", "mid", "top"])
+        self.assertEqual(split.downstream_of(plans, "core"), ["mid"])
+        self.assertEqual(split.downstream_of(plans, "top"), [])
+
+    def test_platform_steps_use_owner_and_name(self) -> None:
+        steps = split.platform_steps("bfxh", "demo")
+        self.assertTrue(any("gh repo create bfxh/demo" in s for s in steps), steps)
+        self.assertFalse(any("bfxh/demo/demo" in s for s in steps), steps)
+        self.assertTrue(any("protection" in s for s in steps), steps)
+
+
+
 class DeterminismScenarios(unittest.TestCase):
     def test_self_test_output_is_stable_across_runs(self) -> None:
-        for name in ("snapshot", "autoflow", "gitflow", "vendor", "deps", "secret_scan"):
+        for name in ("snapshot", "autoflow", "gitflow", "vendor", "deps", "secret_scan", "split"):
             with self.subTest(tool=name):
                 first = normalized_snapshot_id(run_tool(name))
                 second = normalized_snapshot_id(run_tool(name))

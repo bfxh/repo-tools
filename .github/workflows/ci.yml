@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tool: [snapshot, autoflow, gitflow, vendor, deps, secret_scan, ci_integrity]
+        tool: [snapshot, autoflow, gitflow, vendor, deps, secret_scan, ci_integrity, split]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
