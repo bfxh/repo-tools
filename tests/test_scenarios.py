@@ -214,6 +214,21 @@ class SnapshotScenarios(TempRoot):
         self.assertEqual(script.stat().st_mode & 0o777, 0o755)
 
 
+    def test_gc_keeps_recent_and_restorable(self) -> None:
+        ids = []
+        for index in range(4):
+            self.write("g.txt", str(index).encode())
+            ids.append(self.snap(f"g{index}"))
+        before = sorted(p.name for p in (self.root / ".trit" / "objects").rglob("*") if p.is_file())
+        snapshot.gc(self.root, keep=2)
+        after = sorted(p.name for p in (self.root / ".trit" / "objects").rglob("*") if p.is_file())
+        self.assertEqual([s["id"] for s in snapshot.list_snapshots(self.root)], ids[-2:])
+        self.assertLess(len(after), len(before))
+        self.write("g.txt", b"tampered")
+        self.restore(ids[-1], prune=True)
+        self.assertEqual((self.root / "g.txt").read_bytes(), b"3")
+
+
 class AutoflowScenarios(TempRoot):
     def run_tool(self, argv: list[str], keep: bool = False) -> int:
         return autoflow.run(self.root, argv, "", keep)
@@ -522,6 +537,18 @@ class VendorScenarios(TempRoot):
             vendor.ROOT = original
 
 
+    def test_save_refuses_foreign_directory(self) -> None:
+        (self.root / "vendor").mkdir()
+        (self.root / "vendor" / "mine.txt").write_bytes(b"mine")
+        original = vendor.ROOT
+        vendor.ROOT = self.root
+        try:
+            self.assertEqual(vendor.save(self.root, "vendor"), 2)
+            self.assertTrue((self.root / "vendor" / "mine.txt").exists())
+        finally:
+            vendor.ROOT = original
+
+
 class DepsScenarios(TempRoot):
     def make_workspace(self, members: list[str]) -> None:
         (self.root / "Cargo.toml").write_text(
@@ -622,6 +649,26 @@ class DepsScenarios(TempRoot):
         inside = self.root / "inside"
         self.assertEqual(deps.detach(self.root, "alpha", inside, force=False), 2)
         self.assertFalse(inside.exists())
+
+
+    def test_detach_refuses_dangling_reference(self) -> None:
+        self.make_workspace(["crates/alpha", "crates/beta"])
+        self.make_crate("beta", '[package]\nname = "beta"\nversion = "1.2.3"\n')
+        self.make_crate(
+            "alpha",
+            '[package]\nname = "alpha"\nversion = "1.2.3"\n\n[dependencies]\nbeta = { path = "../beta" }\n',
+        )
+        # beta 的源码引用到 crate 外的文件：摘出去会丢
+        (self.root / "crates" / "beta" / "src" / "out.rs").write_bytes(
+            b'const X: &str = include_str!("../../../shared.txt");\n'
+        )
+        (self.root / "shared.txt").write_bytes(b"s")
+        out = self.root.parent / (self.root.name + "-detach-dangling")
+        try:
+            self.assertEqual(deps.detach(self.root, "alpha", out, force=False), 2)
+            self.assertFalse(out.exists())
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
 
 
 class DeterminismScenarios(unittest.TestCase):
