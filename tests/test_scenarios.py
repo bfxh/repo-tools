@@ -197,6 +197,23 @@ class SnapshotScenarios(TempRoot):
         self.assertNotIn("link.txt", manifest["files"])
 
 
+    def test_invalid_snapshot_id_is_rejected(self) -> None:
+        self.write("a.txt", b"x")
+        self.snap()
+        with self.assertRaises(SystemExit) as caught:
+            snapshot.resolve(self.root, "../evil")
+        self.assertIn("不合法", str(caught.exception))
+
+    @unittest.skipIf(os.name == "nt", "Windows 不支持 POSIX 可执行位")
+    def test_executable_bit_roundtrip(self) -> None:
+        script = self.write("run.sh", b"#!/bin/sh\n")
+        os.chmod(script, 0o755)
+        snap_id = self.snap()
+        os.chmod(script, 0o644)
+        self.restore(snap_id)
+        self.assertEqual(script.stat().st_mode & 0o777, 0o755)
+
+
 class AutoflowScenarios(TempRoot):
     def run_tool(self, argv: list[str], keep: bool = False) -> int:
         return autoflow.run(self.root, argv, "", keep)
@@ -383,6 +400,73 @@ class GitflowScenarios(TempRoot):
         self.assertTrue(any(c[:2] == ["pr", "merge"] for c in calls), calls)
 
 
+    def test_branch_and_repo_validation(self) -> None:
+        for bad in ("-x", "feat/../x", "feat x", "a..b", "x.lock", "a//b", ""):
+            with self.subTest(bad=bad):
+                self.assertTrue(gitflow.branch_problems(bad))
+        for good in ("feat/x-1", "fix_a.b"):
+            with self.subTest(good=good):
+                self.assertEqual(gitflow.branch_problems(good), [])
+        self.assertTrue(gitflow.repo_problems("trit"))
+        self.assertEqual(gitflow.repo_problems("bfxh/trit"), [])
+
+    def _fresh_repo(self) -> tuple[pathlib.Path, pathlib.Path]:
+        remote = self.root / "remote.git"
+        work = self.root / "work2"
+        work.mkdir()
+        self._git("init", "--bare", str(remote))
+        self._git("init", cwd=work)
+        self._git("config", "user.email", "t@example.com", cwd=work)
+        self._git("config", "user.name", "t", cwd=work)
+        (work / "a.txt").write_bytes(b"a")
+        (work / "extra.txt").write_bytes(b"extra")
+        self._git("add", "a.txt", "extra.txt", cwd=work)
+        self._git("commit", "-m", "init", cwd=work)
+        self._git("remote", "add", "origin", str(remote), cwd=work)
+        return work, remote
+
+    def test_publish_refuses_dirty_index(self) -> None:
+        work, _ = self._fresh_repo()
+        (work / "a.txt").write_bytes(b"changed")
+        (work / "extra.txt").write_bytes(b"changed too")
+        self._git("add", "extra.txt", cwd=work)  # 索引里有列表外的文件
+        original_root, original_gh = gitflow.ROOT, gitflow.gh
+        gitflow.ROOT, gitflow.gh = work, lambda args, cwd=None: types.SimpleNamespace(returncode=0, stdout="")
+        try:
+            code = gitflow.publish({
+                "title": "t", "body_file": "", "files": ["a.txt"], "branch": "feat/dirty",
+                "base": "main", "no_merge": True, "repo": "o/r", "dry_run": False, "remote": "origin",
+            })
+        finally:
+            gitflow.ROOT, gitflow.gh = original_root, original_gh
+        self.assertEqual(code, 1)
+        self.assertEqual(self._git("log", "-1", "--pretty=%s", cwd=work).stdout.strip(), "init")
+
+    def test_publish_reuses_existing_pr(self) -> None:
+        work, _ = self._fresh_repo()
+        (work / "a.txt").write_bytes(b"changed")
+        calls: list[list[str]] = []
+
+        def fake_gh(args: list[str], cwd=None):
+            calls.append(args)
+            if args[:3] == ["pr", "list", "--repo"]:
+                return types.SimpleNamespace(returncode=0, stdout='[{"number": 7}]')
+            return types.SimpleNamespace(returncode=0, stdout="")
+
+        original_root, original_gh = gitflow.ROOT, gitflow.gh
+        gitflow.ROOT, gitflow.gh = work, fake_gh
+        try:
+            code = gitflow.publish({
+                "title": "t", "body_file": "", "files": ["a.txt"], "branch": "feat/reuse",
+                "base": "main", "no_merge": False, "repo": "o/r", "dry_run": False, "remote": "origin",
+            })
+        finally:
+            gitflow.ROOT, gitflow.gh = original_root, original_gh
+        self.assertEqual(code, 0)
+        self.assertFalse(any(c[:2] == ["pr", "create"] for c in calls), calls)
+        self.assertTrue(any(c[:2] == ["pr", "merge"] for c in calls), calls)
+
+
 class VendorScenarios(TempRoot):
     def test_splice_and_strip_table(self) -> None:
         block = vendor.block_for("vendor")
@@ -420,6 +504,20 @@ class VendorScenarios(TempRoot):
         vendor.ROOT = self.root
         try:
             self.assertEqual(vendor.status(self.root), 0)
+        finally:
+            vendor.ROOT = original
+
+
+    def test_restore_preserves_foreign_vendor(self) -> None:
+        (self.root / "vendor").mkdir()
+        (self.root / "vendor" / "keep.txt").write_bytes(b"mine")
+        original = vendor.ROOT
+        vendor.ROOT = self.root
+        try:
+            self.assertEqual(vendor.restore(self.root, verify_build=False), 0)
+            self.assertTrue((self.root / "vendor" / "keep.txt").exists())
+            self.assertEqual(vendor.restore(self.root, verify_build=False, force=True), 0)
+            self.assertFalse((self.root / "vendor").exists())
         finally:
             vendor.ROOT = original
 
@@ -516,6 +614,14 @@ class DepsScenarios(TempRoot):
             self.assertEqual(deps.detach(self.root, "alpha", out, force=True), 0)
         finally:
             shutil.rmtree(out, ignore_errors=True)
+
+
+    def test_detach_refuses_destination_inside_source(self) -> None:
+        self.make_workspace(["crates/alpha"])
+        self.make_crate("alpha", '[package]\nname = "alpha"\nversion = "1.2.3"\n')
+        inside = self.root / "inside"
+        self.assertEqual(deps.detach(self.root, "alpha", inside, force=False), 2)
+        self.assertFalse(inside.exists())
 
 
 class DeterminismScenarios(unittest.TestCase):
