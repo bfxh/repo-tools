@@ -381,7 +381,7 @@ class GitflowScenarios(TempRoot):
         remote = self.root / "remote.git"
         work = self.root / "work"
         work.mkdir()
-        self.assertEqual(self._git("init", "--bare", str(remote)).returncode, 0)
+        self.assertEqual(self._git("init", "--bare", "-b", "main", str(remote)).returncode, 0)
         self.assertEqual(self._git("init", cwd=work).returncode, 0)
         self._git("config", "user.email", "t@example.com", cwd=work)
         self._git("config", "user.name", "t", cwd=work)
@@ -429,7 +429,7 @@ class GitflowScenarios(TempRoot):
         remote = self.root / "remote.git"
         work = self.root / "work2"
         work.mkdir()
-        self._git("init", "--bare", str(remote))
+        self._git("init", "--bare", "-b", "main", str(remote))
         self._git("init", cwd=work)
         self._git("config", "user.email", "t@example.com", cwd=work)
         self._git("config", "user.name", "t", cwd=work)
@@ -480,6 +480,124 @@ class GitflowScenarios(TempRoot):
         self.assertEqual(code, 0)
         self.assertFalse(any(c[:2] == ["pr", "create"] for c in calls), calls)
         self.assertTrue(any(c[:2] == ["pr", "merge"] for c in calls), calls)
+
+
+    def _branch_repo(self) -> pathlib.Path:
+        """一个带 origin/main 的工作仓：main 上有一次提交。"""
+        remote = self.root / "branch-remote.git"
+        work = self.root / "branch-work"
+        work.mkdir()
+        self._git("init", "--bare", "-b", "main", str(remote))
+        self._git("init", "-b", "main", cwd=work)
+        self._git("config", "user.email", "t@example.com", cwd=work)
+        self._git("config", "user.name", "t", cwd=work)
+        (work / "f.txt").write_bytes(b"base\n")
+        self._git("add", "f.txt", cwd=work)
+        self._git("commit", "-m", "init", cwd=work)
+        self._git("remote", "add", "origin", str(remote), cwd=work)
+        self._git("push", "-u", "origin", "main", cwd=work)
+        return work
+
+    def _with_root(self, work: pathlib.Path):
+        class Ctx:
+            def __enter__(self):
+                self.saved = gitflow.ROOT
+                gitflow.ROOT = work
+
+            def __exit__(self, *exc):
+                gitflow.ROOT = self.saved
+                return False
+
+        return Ctx()
+
+    def test_branch_start_creates_from_base(self) -> None:
+        work = self._branch_repo()
+        with self._with_root(work):
+            self.assertEqual(gitflow.branch_start("feat/new", "main", "origin", dry_run=False), 0)
+        names = self._git("branch", "--format=%(refname:short)", cwd=work).stdout.split()
+        self.assertIn("feat/new", names)
+        head = self._git("rev-parse", "HEAD", cwd=work).stdout.strip()
+        base = self._git("rev-parse", "origin/main", cwd=work).stdout.strip()
+        self.assertEqual(head, base)
+
+    def test_branch_start_refuses_bad_or_protected_names(self) -> None:
+        work = self._branch_repo()
+        with self._with_root(work):
+            self.assertEqual(gitflow.branch_start("-x", "main", "origin", dry_run=True), 2)
+            self.assertEqual(gitflow.branch_start("main", "main", "origin", dry_run=True), 2)
+            self.assertEqual(gitflow.branch_start("nested/../x", "main", "origin", dry_run=True), 2)
+
+    def test_branch_sync_rebases_onto_new_base(self) -> None:
+        work = self._branch_repo()
+        self._git("checkout", "-b", "feat/a", cwd=work)
+        (work / "mine.txt").write_bytes(b"mine")
+        self._git("add", "mine.txt", cwd=work)
+        self._git("commit", "-m", "mine", cwd=work)
+        # 让 origin/main 前进（另一个克隆推上去，避免切分支）
+        other = self.root / "other"
+        self._git("clone", "-b", "main", str(self.root / "branch-remote.git"), str(other))
+        self._git("config", "user.email", "t@example.com", cwd=other)
+        self._git("config", "user.name", "t", cwd=other)
+        (other / "theirs.txt").write_bytes(b"theirs")
+        self._git("add", "theirs.txt", cwd=other)
+        self._git("commit", "-m", "theirs", cwd=other)
+        self.assertEqual(self._git("push", "origin", "main", cwd=other).returncode, 0)
+        with self._with_root(work):
+            self.assertEqual(gitflow.branch_sync("main", "origin", dry_run=False), 0)
+        counts = self._git("rev-list", "--left-right", "--count", "origin/main...HEAD", cwd=work).stdout.split()
+        self.assertEqual(counts, ["0", "1"])
+
+    def test_branch_sync_aborts_on_conflict(self) -> None:
+        work = self._branch_repo()
+        self._git("checkout", "-b", "feat/conflict", cwd=work)
+        (work / "f.txt").write_bytes(b"mine\n")
+        self._git("add", "f.txt", cwd=work)
+        self._git("commit", "-m", "mine", cwd=work)
+        other = self.root / "other2"
+        self._git("clone", "-b", "main", str(self.root / "branch-remote.git"), str(other))
+        self._git("config", "user.email", "t@example.com", cwd=other)
+        self._git("config", "user.name", "t", cwd=other)
+        (other / "f.txt").write_bytes(b"theirs\n")
+        self._git("add", "f.txt", cwd=other)
+        self._git("commit", "-m", "theirs", cwd=other)
+        self.assertEqual(self._git("push", "origin", "main", cwd=other).returncode, 0)
+        before = self._git("rev-parse", "HEAD", cwd=work).stdout.strip()
+        with self._with_root(work):
+            self.assertEqual(gitflow.branch_sync("main", "origin", dry_run=False), 1)
+        after = self._git("rev-parse", "HEAD", cwd=work).stdout.strip()
+        self.assertEqual(before, after, "冲突后分支必须回到原样")
+        self.assertFalse((work / ".git" / "rebase-merge").exists())
+
+    def test_branch_sync_refuses_dirty_tree(self) -> None:
+        work = self._branch_repo()
+        self._git("checkout", "-b", "feat/dirty", cwd=work)
+        (work / "f.txt").write_bytes(b"uncommitted\n")
+        with self._with_root(work):
+            self.assertEqual(gitflow.branch_sync("main", "origin", dry_run=False), 2)
+
+    def test_branch_prune_dry_run_and_apply(self) -> None:
+        work = self._branch_repo()
+        self._git("checkout", "-b", "merged-one", cwd=work)
+        (work / "m.txt").write_bytes(b"m")
+        self._git("add", "m.txt", cwd=work)
+        self._git("commit", "-m", "m", cwd=work)
+        self._git("checkout", "main", cwd=work)
+        self._git("merge", "--no-ff", "-m", "merge", "merged-one", cwd=work)
+        self._git("checkout", "-b", "open-one", cwd=work)
+        (work / "o.txt").write_bytes(b"o")
+        self._git("add", "o.txt", cwd=work)
+        self._git("commit", "-m", "o", cwd=work)
+        self._git("checkout", "main", cwd=work)
+        with self._with_root(work):
+            self.assertEqual(gitflow.branch_prune("main", apply_changes=False), 0)
+        names = self._git("branch", "--format=%(refname:short)", cwd=work).stdout.split()
+        self.assertIn("merged-one", names)
+        self.assertIn("open-one", names)
+        with self._with_root(work):
+            self.assertEqual(gitflow.branch_prune("main", apply_changes=True), 0)
+        names = self._git("branch", "--format=%(refname:short)", cwd=work).stdout.split()
+        self.assertNotIn("merged-one", names)
+        self.assertIn("open-one", names)
 
 
 class VendorScenarios(TempRoot):
