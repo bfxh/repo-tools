@@ -625,6 +625,21 @@ class GitflowScenarios(TempRoot):
         with self._with_root(work):
             self.assertEqual(gitflow.worktree_add("feat/inside", "main", "origin", str(work / "inside"), dry_run=True), 2)
 
+    def test_pr_triage_classification(self) -> None:
+        now = 2_000_000_000
+        fresh = {"number": 1, "isDraft": False, "updatedAt": "2033-05-18T03:00:00Z",
+                 "mergeable": "MERGEABLE", "statusCheckRollup": [{"name": "CI"}], "files": [{"path": "a"}]}
+        draft = {"number": 2, "isDraft": True, "updatedAt": "2033-05-18T03:00:00Z",
+                 "mergeable": "MERGEABLE", "statusCheckRollup": [{"name": "CI"}], "files": [{"path": "b"}]}
+        broken = {"number": 3, "isDraft": False, "updatedAt": "2020-01-01T00:00:00Z",
+                  "mergeable": "CONFLICTING", "statusCheckRollup": [], "files": [{"path": "x"}]}
+        self.assertEqual(gitflow.classify_pr(fresh, now, 14, ["CI"], [draft, broken]), [])
+        self.assertEqual(gitflow.classify_pr(draft, now, 14, ["CI"], [fresh, broken]), ["draft"])
+        labels = gitflow.classify_pr(broken, now, 14, ["CI"], [fresh, draft])
+        self.assertTrue({"stale", "conflicting", "missing-required-check"} <= set(labels), labels)
+        duplicate = dict(fresh, number=9)
+        self.assertEqual(gitflow.classify_pr(duplicate, now, 14, ["CI"], [fresh]), ["superseded-by-#1"])
+
     def test_checks_race_is_not_failure(self) -> None:
         self.assertTrue(gitflow.checks_not_yet("no checks reported on the 'feat/x' branch"))
         self.assertFalse(gitflow.checks_not_yet("some check failed"))
