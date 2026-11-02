@@ -12,6 +12,8 @@ python3 scripts/autoflow.py run -- <命令…>   # 跑命令；失败自动回�
 
 python3 scripts/gitflow.py publish --title "…" --files a b c
                                             # 点名文件 → 密钥扫描 → 提交 → 推 → PR → 等 CI → 绿即合
+python3 scripts/gitflow.py diagnose --pr 210
+                                            # 失败检查逐条给出：检查名 + 运行地址 + 日志尾部
 
 python3 scripts/deps.py plan                # 某个 crate 能不能整块摘出去、缺哪几块
 python3 scripts/deps.py detach <crate> --to <dir> --verify
