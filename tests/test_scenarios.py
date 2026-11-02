@@ -628,6 +628,38 @@ class GitflowScenarios(TempRoot):
         with self._with_root(work):
             self.assertEqual(gitflow.worktree_add("feat/inside", "main", "origin", str(work / "inside"), dry_run=True), 2)
 
+    def test_dco_and_flaky_helpers(self) -> None:
+        sep, end = chr(31), chr(30)
+        log = f"aaa{sep}feat: x{chr(10)}Signed-off-by: t <t@e>{end}bbb{sep}fix: y{end}"
+        self.assertEqual(gitflow.missing_signoff(log), ["bbb"])
+        rows = [
+            {"sha": "s", "workflow": "CI", "run": 1, "jobs": {"CI": "success"}},
+            {"sha": "s", "workflow": "CI", "run": 2, "jobs": {"CI": "failure"}},
+            {"sha": "s", "workflow": "t3", "run": 3, "jobs": {"t3": "success"}},
+            {"sha": "s", "workflow": "t3", "run": 4, "jobs": {"t3": "success"}},
+        ]
+        groups = gitflow.flaky_groups(rows)
+        self.assertEqual([(g["workflow"], list(g["unstable"])) for g in groups], [("CI", ["CI"])])
+
+    def test_history_scan_and_lfs_plan(self) -> None:
+        import subprocess as sp
+        root = self.root
+        sp.run(["git", "init", "-q"], cwd=root)
+        sp.run(["git", "config", "user.email", "t@example.com"], cwd=root)
+        sp.run(["git", "config", "user.name", "t"], cwd=root)
+        (root / "leak.py").write_text("K = \"sk" + "-abcdefghijklmnopqrstu\"\n", encoding="utf-8")
+        sp.run(["git", "add", "-A"], cwd=root)
+        sp.run(["git", "commit", "-qm", "add"], cwd=root)
+        (root / "leak.py").unlink()
+        sp.run(["git", "add", "-A"], cwd=root)
+        sp.run(["git", "commit", "-qm", "remove"], cwd=root)
+        self.assertEqual(secret_scan.scan(root, 2), [])
+        self.assertTrue(secret_scan.scan_history(root, 2))
+        (root / "big.bin").write_bytes(b"0" * (6 * 1024 * 1024))
+        sp.run(["git", "add", "-A"], cwd=root)
+        sp.run(["git", "commit", "-qm", "big"], cwd=root)
+        self.assertTrue(any("*.bin" in line for line in repo_doctor.lfs_plan(root)))
+
     def test_pr_triage_classification(self) -> None:
         now = 2_000_000_000
         fresh = {"number": 1, "isDraft": False, "updatedAt": "2033-05-18T03:00:00Z",
