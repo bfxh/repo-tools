@@ -1090,5 +1090,38 @@ class DeterminismScenarios(unittest.TestCase):
                 self.assertEqual(first, second)
 
 
+class ConsoleEncodingScenarios(unittest.TestCase):
+    """中文 Windows 控制台是 cp936：GBK 放不下的字符（⇒、emoji、部分箭头）会把一次
+    本来有效的判定直接崩掉。这里用 PYTHONIOENCODING=cp936 钉住这个口径——
+    不依赖跑测试的机器是什么 locale，Linux 上同样成立。
+
+    今天真栽了两次：snapshot.restore 打印文件名（库调用方没走 main 的 reconfigure）、
+    green_audit 打印判决（自己忘了 reconfigure）。
+    """
+
+    def tools(self) -> list[str]:
+        found = []
+        for path in sorted((ROOT / "scripts").glob("*.py")):
+            if '"--self-test"' in path.read_text(encoding="utf-8", errors="replace"):
+                found.append(path.stem)
+        return found
+
+    def test_no_tool_dies_on_cp936_console(self) -> None:
+        env = dict(os.environ, PYTHONIOENCODING="cp936")
+        tools = self.tools()
+        self.assertGreaterEqual(len(tools), 10, "扫描没找到工具，这条测试就是空转")
+        for name in tools:
+            with self.subTest(tool=name):
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / f"{name}.py"), "--self-test"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                    encoding="utf-8", errors="replace", env=env, cwd=str(ROOT))
+                self.assertNotIn("UnicodeEncodeError", result.stdout,
+                                 f"{name} 被控制台编码崩死（打印要降级，不许抛）")
+                self.assertNotIn("Traceback", result.stdout, f"{name} 在 cp936 下抛异常")
+                self.assertEqual(result.returncode, 0,
+                                 f"{name} 在 cp936 控制台下自测不过")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
