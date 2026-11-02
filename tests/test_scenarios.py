@@ -26,6 +26,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+secret_scan = importlib.import_module("secret_scan")
 snapshot = importlib.import_module("snapshot")
 autoflow = importlib.import_module("autoflow")
 gitflow = importlib.import_module("gitflow")
@@ -397,6 +398,8 @@ class GitflowScenarios(TempRoot):
 
         def fake_gh(args: list[str], cwd=None):
             calls.append(args)
+            if args[:2] == ["pr", "checks"]:
+                return types.SimpleNamespace(returncode=0, stdout="CI\tpass\t1s\n")
             return types.SimpleNamespace(returncode=0, stdout="")
 
         original_root, original_gh = gitflow.ROOT, gitflow.gh
@@ -468,6 +471,8 @@ class GitflowScenarios(TempRoot):
             calls.append(args)
             if args[:3] == ["pr", "list", "--repo"]:
                 return types.SimpleNamespace(returncode=0, stdout='[{"number": 7}]')
+            if args[:2] == ["pr", "checks"]:
+                return types.SimpleNamespace(returncode=0, stdout="CI\tpass\t1s\n")
             return types.SimpleNamespace(returncode=0, stdout="")
 
         original_root, original_gh = gitflow.ROOT, gitflow.gh
@@ -618,6 +623,10 @@ class GitflowScenarios(TempRoot):
         work = self._branch_repo()
         with self._with_root(work):
             self.assertEqual(gitflow.worktree_add("feat/inside", "main", "origin", str(work / "inside"), dry_run=True), 2)
+
+    def test_checks_race_is_not_failure(self) -> None:
+        self.assertTrue(gitflow.checks_not_yet("no checks reported on the 'feat/x' branch"))
+        self.assertFalse(gitflow.checks_not_yet("some check failed"))
 
     def test_stack_chains_and_warns_off_trunk(self) -> None:
         prs = [
@@ -896,9 +905,33 @@ class DepsScenarios(TempRoot):
             shutil.rmtree(out, ignore_errors=True)
 
 
+class SecretScanScenarios(TempRoot):
+    def test_excluded_dirs_and_allow_marker(self) -> None:
+        key = "sk" + "-abcdefghijklmnopqrstu"
+        self.write("pkg/leak.txt", key.encode())
+        self.write(".git/config", key.encode())
+        self.write("target/x.txt", key.encode())
+        self.write("vendor/x.txt", key.encode())
+        (self.root / "ok.txt").write_text(key + " // secret-scan: allow 夹具\n", encoding="utf-8")
+        (self.root / "prev.txt").write_text("// secret-scan: allow 夹具\n" + key + "\n", encoding="utf-8")
+        findings = secret_scan.scan(self.root, max_mb=2)
+        files = {f["file"] for f in findings}
+        self.assertIn("pkg/leak.txt", files)
+        for skipped in (".git/config", "target/x.txt", "vendor/x.txt", "ok.txt", "prev.txt"):
+            self.assertNotIn(skipped, files, skipped)
+        self.assertEqual([f["line"] for f in findings if f["file"] == "pkg/leak.txt"], [1])
+
+    def test_binary_and_large_are_skipped(self) -> None:
+        key = "AK" + "IA" + "A" * 16
+        (self.root / "bin.dat").write_bytes(b"\x00" + key.encode())
+        (self.root / "big.txt").write_text(key + "\n" * 10, encoding="utf-8")
+        self.assertEqual([f for f in secret_scan.scan(self.root, max_mb=2) if f["file"] == "bin.dat"], [])
+        self.assertEqual(secret_scan.scan(self.root, max_mb=0), [])
+
+
 class DeterminismScenarios(unittest.TestCase):
     def test_self_test_output_is_stable_across_runs(self) -> None:
-        for name in ("snapshot", "autoflow", "gitflow", "vendor", "deps"):
+        for name in ("snapshot", "autoflow", "gitflow", "vendor", "deps", "secret_scan"):
             with self.subTest(tool=name):
                 first = normalized_snapshot_id(run_tool(name))
                 second = normalized_snapshot_id(run_tool(name))
