@@ -27,6 +27,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 secret_scan = importlib.import_module("secret_scan")
+hooks = importlib.import_module("hooks")
+release = importlib.import_module("release")
 repo_doctor = importlib.import_module("repo_doctor")
 split = importlib.import_module("split")
 snapshot = importlib.import_module("snapshot")
@@ -1007,9 +1009,49 @@ class RepoDoctorScenarios(TempRoot):
 
 
 
+class ReleaseAndHooksScenarios(TempRoot):
+    def _init_repo(self) -> None:
+        import subprocess as sp
+        sp.run(["git", "init", "-q"], cwd=self.root)
+        sp.run(["git", "config", "user.email", "t@example.com"], cwd=self.root)
+        sp.run(["git", "config", "user.name", "t"], cwd=self.root)
+        (self.root / "Cargo.toml").write_text(
+            '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "1.2.3"\n', encoding="utf-8"
+        )
+        (self.root / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n\n- 改动\n", encoding="utf-8")
+        sp.run(["git", "add", "-A"], cwd=self.root)
+        sp.run(["git", "commit", "-qm", "init"], cwd=self.root)
+
+    def test_release_version_and_tag(self) -> None:
+        self._init_repo()
+        self.assertEqual(release.workspace_version(self.root), "1.2.3")
+        self.assertTrue(any("还没有任何 tag" in p for p in release.check(self.root)))
+        self.assertEqual(release.make_tag(self.root, "1.2.3", apply=False, push=False), 0)
+        self.assertEqual(release.make_tag(self.root, "9.9.9", apply=True, push=False), 2)
+
+    def test_hooks_guard_protected_branch(self) -> None:
+        import shutil as sh
+        import subprocess as sp
+        self._init_repo()
+        self.assertEqual(hooks.status(self.root), 1)
+        self.assertEqual(hooks.install(self.root, force=False), 0)
+        shell = sh.which("sh")
+        if not shell:
+            self.skipTest("没有 sh")
+        hook = hooks.hook_path(self.root)
+        blocked = sp.run([shell, str(hook)], input="refs/heads/x a refs/heads/main b\n",
+                         cwd=self.root, capture_output=True, text=True).returncode
+        allowed = sp.run([shell, str(hook)], input="refs/heads/x a refs/heads/feat/x b\n",
+                         cwd=self.root, capture_output=True, text=True).returncode
+        self.assertNotEqual(blocked, 0)
+        self.assertEqual(allowed, 0)
+        self.assertEqual(hooks.uninstall(self.root), 0)
+
+
+
 class DeterminismScenarios(unittest.TestCase):
     def test_self_test_output_is_stable_across_runs(self) -> None:
-        for name in ("snapshot", "autoflow", "gitflow", "vendor", "deps", "secret_scan", "split", "repo_doctor"):
+        for name in ("snapshot", "autoflow", "gitflow", "vendor", "deps", "secret_scan", "split", "repo_doctor", "release", "hooks"):
             with self.subTest(tool=name):
                 first = normalized_snapshot_id(run_tool(name))
                 second = normalized_snapshot_id(run_tool(name))
