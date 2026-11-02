@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  self-tests:
+    name: self-tests (${{ matrix.tool }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [snapshot, autoflow, gitflow, vendor, deps]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: "3.12"
+      - name: Syntax
+        run: python3 -m py_compile scripts/${{ matrix.tool }}.py
+      - name: Self-test (positive + counterexamples)
+        run: python3 scripts/${{ matrix.tool }}.py --self-test
