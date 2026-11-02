@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib
+import io
 import json
 import os
 import pathlib
@@ -598,6 +600,111 @@ class GitflowScenarios(TempRoot):
         names = self._git("branch", "--format=%(refname:short)", cwd=work).stdout.split()
         self.assertNotIn("merged-one", names)
         self.assertIn("open-one", names)
+
+
+    def test_worktree_add_list_remove(self) -> None:
+        work = self._branch_repo()
+        target = self.root / "wt-feat"
+        with self._with_root(work):
+            self.assertEqual(gitflow.worktree_add("feat/wt", "main", "origin", str(target), dry_run=False), 0)
+        self.assertTrue((target / "f.txt").exists())
+        rows = gitflow.parse_worktrees(self._git("worktree", "list", "--porcelain", cwd=work).stdout)
+        self.assertTrue(any(row.get("branch") == "feat/wt" for row in rows), rows)
+        with self._with_root(work):
+            self.assertEqual(gitflow.worktree_remove(str(target), force=False), 0)
+        self.assertFalse(target.exists())
+
+    def test_worktree_refuses_path_inside_repo(self) -> None:
+        work = self._branch_repo()
+        with self._with_root(work):
+            self.assertEqual(gitflow.worktree_add("feat/inside", "main", "origin", str(work / "inside"), dry_run=True), 2)
+
+    def test_stack_chains_and_warns_off_trunk(self) -> None:
+        prs = [
+            {"number": 1, "title": "a", "headRefName": "feat/a", "baseRefName": "main"},
+            {"number": 2, "title": "b", "headRefName": "feat/b", "baseRefName": "feat/a"},
+            {"number": 3, "title": "c", "headRefName": "feat/c", "baseRefName": "feat/missing"},
+        ]
+        original_gh = gitflow.gh
+        gitflow.gh = lambda args, cwd=None: types.SimpleNamespace(returncode=0, stdout=json.dumps(prs))
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                code = gitflow.stack("o/r", remote_state=True)
+        finally:
+            gitflow.gh = original_gh
+        out = buf.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("main → feat/a → feat/b", out)
+        self.assertIn("警告", out)
+        self.assertIn("feat/missing", out)
+
+    def test_protect_reports_required_rules(self) -> None:
+        def fake_gh(args, cwd=None):
+            if args[:2] == ["api", "repos/o/r/branches/main/protection"]:
+                return types.SimpleNamespace(returncode=0, stdout=json.dumps({
+                    "required_status_checks": {"contexts": ["CI"]},
+                    "required_pull_request_reviews": {"required_approving_review_count": 1},
+                    "enforce_admins": {"enabled": True},
+                }))
+            return types.SimpleNamespace(returncode=0, stdout=json.dumps({"protected": True}))
+
+        original_gh = gitflow.gh
+        gitflow.gh = fake_gh
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                code = gitflow.protect("o/r", "main")
+        finally:
+            gitflow.gh = original_gh
+        out = buf.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("受保护=True", out)
+        self.assertIn("CI", out)
+        self.assertIn("审批数：1", out)
+
+    def test_prune_remote_requires_merged_pr_evidence(self) -> None:
+        work = self._branch_repo()
+        self._git("checkout", "-b", "merged/remote", cwd=work)
+        (work / "m.txt").write_bytes(b"m")
+        self._git("add", "m.txt", cwd=work)
+        self._git("commit", "-m", "m", cwd=work)
+        self.assertEqual(self._git("push", "-u", "origin", "merged/remote", cwd=work).returncode, 0)
+        self._git("checkout", "main", cwd=work)
+        self._git("merge", "--no-ff", "-m", "merge", "merged/remote", cwd=work)
+        self.assertEqual(self._git("push", "origin", "main", cwd=work).returncode, 0)
+        # 另一个已并入但没有 MERGED PR 记录的分支
+        self._git("checkout", "-b", "merged/nopr", cwd=work)
+        (work / "n.txt").write_bytes(b"n")
+        self._git("add", "n.txt", cwd=work)
+        self._git("commit", "-m", "n", cwd=work)
+        self.assertEqual(self._git("push", "-u", "origin", "merged/nopr", cwd=work).returncode, 0)
+        self._git("checkout", "main", cwd=work)
+        self._git("merge", "--no-ff", "-m", "merge2", "merged/nopr", cwd=work)
+        self.assertEqual(self._git("push", "origin", "main", cwd=work).returncode, 0)
+
+        def fake_gh(args, cwd=None):
+            head = args[args.index("--head") + 1] if "--head" in args else ""
+            body = '[{"number": 9}]' if head == "merged/remote" else "[]"
+            return types.SimpleNamespace(returncode=0, stdout=body)
+
+        def remote_heads() -> str:
+            return self._git("ls-remote", "--heads", "origin", cwd=work).stdout
+
+        original_gh = gitflow.gh
+        gitflow.gh = fake_gh
+        try:
+            with self._with_root(work):
+                self.assertEqual(gitflow.branch_prune_remote("o/r", "main", "origin", apply_changes=False), 0)
+            self.assertIn("merged/remote", remote_heads())
+            self.assertIn("merged/nopr", remote_heads())
+            with self._with_root(work):
+                self.assertEqual(gitflow.branch_prune_remote("o/r", "main", "origin", apply_changes=True), 0)
+            heads = remote_heads()
+            self.assertNotIn("merged/remote", heads)
+            self.assertIn("merged/nopr", heads, "没有 MERGED PR 记录的分支不许删")
+        finally:
+            gitflow.gh = original_gh
 
 
 class VendorScenarios(TempRoot):
