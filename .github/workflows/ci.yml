@@ -25,3 +25,15 @@ jobs:
         run: python3 -m py_compile scripts/${{ matrix.tool }}.py
       - name: Self-test (positive + counterexamples)
         run: python3 scripts/${{ matrix.tool }}.py --self-test
+
+  scenarios:
+    name: scenario suite (invariants / edge cases / matrix)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: "3.12"
+      - name: unittest scenarios
+        run: python -m unittest discover -s tests -v
