@@ -27,6 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 secret_scan = importlib.import_module("secret_scan")
+repo_doctor = importlib.import_module("repo_doctor")
 split = importlib.import_module("split")
 snapshot = importlib.import_module("snapshot")
 autoflow = importlib.import_module("autoflow")
@@ -974,9 +975,41 @@ class SplitScenarios(unittest.TestCase):
 
 
 
+class RepoDoctorScenarios(TempRoot):
+    def test_gitmodules_and_codeowners(self) -> None:
+        modules = repo_doctor.parse_gitmodules(
+            '[submodule "a"]\n\tpath = vendor/a\n\turl = https://x/a\n'
+        )
+        self.assertEqual(modules[0]["path"], "vendor/a")
+        owners = "* @o\n/crates/core/ @o\n"
+        self.assertEqual(repo_doctor.codeowners_gaps(owners, ["crates/core", "crates/new"]), ["crates/new"])
+        self.assertEqual(repo_doctor.codeowners_gaps("* @o\n", ["crates/a"]), ["crates/a"])
+
+    def test_doctor_flags_build_artifacts(self) -> None:
+        import subprocess as sp
+        root = self.root
+        sp.run(["git", "init", "-q"], cwd=root)
+        sp.run(["git", "config", "user.email", "t@example.com"], cwd=root)
+        sp.run(["git", "config", "user.name", "t"], cwd=root)
+        (root / "target").mkdir()
+        (root / "target" / "junk.bin").write_bytes(b"junk")
+        (root / "a.txt").write_bytes(b"x")
+        sp.run(["git", "add", "-A"], cwd=root)
+        findings = repo_doctor.diagnose(root, remote=False)
+        kinds = {f["kind"] for f in findings}
+        self.assertIn("构建产物", kinds)
+        self.assertTrue(all(f["fix"] for f in findings))
+
+    def test_doctor_rejects_non_git_dir(self) -> None:
+        empty = self.root / "empty"
+        empty.mkdir()
+        self.assertEqual(repo_doctor.diagnose(empty, remote=False)[0]["kind"], "repo")
+
+
+
 class DeterminismScenarios(unittest.TestCase):
     def test_self_test_output_is_stable_across_runs(self) -> None:
-        for name in ("snapshot", "autoflow", "gitflow", "vendor", "deps", "secret_scan", "split"):
+        for name in ("snapshot", "autoflow", "gitflow", "vendor", "deps", "secret_scan", "split", "repo_doctor"):
             with self.subTest(tool=name):
                 first = normalized_snapshot_id(run_tool(name))
                 second = normalized_snapshot_id(run_tool(name))
