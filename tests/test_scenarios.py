@@ -1072,9 +1072,11 @@ class ReleaseAndHooksScenarios(TempRoot):
             self.skipTest("没有 sh")
         hook = hooks.hook_path(self.root)
         blocked = sp.run([shell, str(hook)], input="refs/heads/x a refs/heads/main b\n",
-                         cwd=self.root, capture_output=True, text=True).returncode
+                         cwd=self.root, capture_output=True, text=True,
+                         encoding="utf-8", errors="replace").returncode
         allowed = sp.run([shell, str(hook)], input="refs/heads/x a refs/heads/feat/x b\n",
-                         cwd=self.root, capture_output=True, text=True).returncode
+                         cwd=self.root, capture_output=True, text=True,
+                         encoding="utf-8", errors="replace").returncode
         self.assertNotEqual(blocked, 0)
         self.assertEqual(allowed, 0)
         self.assertEqual(hooks.uninstall(self.root), 0)
@@ -1121,6 +1123,42 @@ class ConsoleEncodingScenarios(unittest.TestCase):
                 self.assertNotIn("Traceback", result.stdout, f"{name} 在 cp936 下抛异常")
                 self.assertEqual(result.returncode, 0,
                                  f"{name} 在 cp936 控制台下自测不过")
+
+
+class SubprocessEncodingScenarios(unittest.TestCase):
+    """静态钉子：任何 `subprocess(..., text=True)` 都必须钉死 encoding。
+
+    中文 Windows 上默认 cp936：子进程（我们的门脚本自己）往 stdout 打 UTF-8 中文时，
+    读线程抛 UnicodeDecodeError ⇒ 调用方拿到空输出 ⇒ "读不到＝没有"的分支被走进来，
+    门变成假绿。这类失败在测试里只表现为一条 thread 警告，所以要用静态口径钉。
+    """
+
+    def _load(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "doctor_gate", str(ROOT / "scripts" / "repo_doctor.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_scripts_and_tests_pin_encoding(self):
+        doctor = self._load()
+        for directory in (ROOT / "scripts", ROOT / "tests"):
+            with self.subTest(directory=directory.name):
+                self.assertEqual(doctor.subprocess_encoding_gaps(directory), [])
+
+    def test_gap_detected_on_synthetic_file(self):
+        import tempfile
+
+        doctor = self._load()
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = pathlib.Path(tmp) / "bad.py"
+            bad.write_text("import subprocess\nsubprocess.run(['x'], text=True)\n", encoding="utf-8")
+            self.assertEqual(doctor.subprocess_encoding_gaps(pathlib.Path(tmp)), ["bad.py:2"])
+            bad.write_text("import subprocess\nsubprocess.run(['x'], text=True, encoding='utf-8')\n",
+                           encoding="utf-8")
+            self.assertEqual(doctor.subprocess_encoding_gaps(pathlib.Path(tmp)), [])
 
 
 if __name__ == "__main__":
