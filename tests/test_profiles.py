@@ -44,7 +44,22 @@ class Defaults(ProfileRoot):
         self.assertFalse(resolution.effective["math"]["verified"])
         self.assertFalse((self.repo / ".trit").exists(), "show/check must not create .trit")
 
-    def test_repo_profile_trit(self) -> None:
+    def test_vcs_defaults_to_git_and_says_so(self) -> None:
+        res = profiles.resolve(self.repo, env={})
+        self.assertEqual({"backend": "git", "hosting": "github"}, res.effective["vcs"])
+        self.assertEqual([], res.errors)
+        trit = profiles.resolve(self.repo, env={}, cli={"profile": "trit"})
+        self.assertEqual("git", trit.effective["vcs"]["backend"], "profile=trit 也不许谎报传输面")
+        self.assertTrue(any("传输与托管面仍是 git" in w for w in trit.warnings), trit.warnings)
+
+    def test_vcs_backend_trit_fails_closed(self) -> None:
+        res = profiles.resolve(self.repo, env={}, cli={"vcs_backend": "trit"})
+        self.assertTrue(any("未实现" in e for e in res.errors), res.errors)
+        self.assertFalse(any("未实现" in w for w in res.warnings), "判红不许降级成警告")
+        self.assertEqual(1, profiles.resolve(self.repo, env={}, cli={"vcs_hosting": "svn"}).errors
+                         and 1)
+
+
         self.write_config({"version": 1, "profile": "trit"})
         resolution = profiles.resolve(self.repo, env={})
         self.assertEqual(resolution.profile, "trit")
