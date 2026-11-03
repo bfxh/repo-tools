@@ -30,6 +30,8 @@
 | `gpu.allow_nvidia` | `true`（legacy） | 布尔 | 允许三进制项目用 NVIDIA |
 | `gpu.alarm` | `true` | 布尔 | 三进制 + NVIDIA 时报警 |
 | `docs.manager` | `legacy` | `legacy` / `trit` | 文档由谁管理 |
+| `vcs.backend` | `git` | `git` / `trit` | 版本控制后端；**`trit` 现在判红**（没有可指的实现） |
+| `vcs.hosting` | `github` | `github` / `gitlab` / `local` | 托管与 CI 宿主 |
 | `math.reference` | `https://github.com/openai/math` | URL | 默认数学参考目录 |
 | `math.mode` | `reference` | `reference` / `dependency` / `off` | 参考、依赖、关闭 |
 | `math.verified` | `false` | 布尔 | 目录未经本项目验证 |
@@ -94,6 +96,8 @@
 | 已启用三进制但 `gpu.backend=nvidia` | 警告；`allow_nvidia=true` 或 `alarm=false` 关闭 |
 | `gpu.backend=trit` 但 `build.features` 没有 `gpu` | 警告：构建不会编进 GPU 内核 |
 | `math.mode=dependency` 且 `math.verified=false` | 警告：未验证的目录不能当依赖 |
+| 已启用三进制（build/gpu/docs 任一为 trit）且 `vcs.backend=git` | 警告：**传输与托管面仍是 git**（陈述现状，不是待办遗漏） |
+| `vcs.backend=trit` | **判红**：没有变更集存储 / diff / 合并 / 脱离 GitHub 的 CI 宿主 |
 | `check --strict` | 任何警告都判红 |
 
 > “默认报警，可显式关闭”对应你说的“默认报警 关闭”：
@@ -164,8 +168,32 @@ legacy（默认，不动）
 
 ---
 
+## 7.1 为什么默认还是 git / GitHub
+
+不是"忘了翻默认"——**当前只有协调面被替代了**。分三面看：
+
+| 面 | 现在的实现 | 状态 |
+|---|---|---|
+| 协调（谁在动什么、一轮能否传完、交接与回执） | `trit-orch` 的 `ClaimStore` / `DeliveryReceipt` / `handoff_gate`，加 `agent_claims.py`（两侧共读同一张判定表） | 已替代，且进了 CI |
+| 传输 / 版本（变更集、diff、合并、回滚底座） | `git`；`snapshot.py` 只按**字节**回滚本地文件，是补充不是替代 | 未替代 |
+| 托管 / CI（分支保护、必需检查、审批、runner） | GitHub（`ci_integrity.py` 专门对账保护规则与 workflow 是否一致） | 未替代，且属组织决策，不由脚本单方面翻 |
+
+所以 `vcs.backend` 在三个 profile 里**都写死 `git`**，并且让它**出声**：
+
+- `profile=trit`（或 build/gpu/docs 任一换了 trit）时警告"传输与托管面仍是 git"；
+- 有人把 `vcs.backend` 设成 `trit` 就判红——因为还没有可指的实现；
+- `check --strict` 下，上面那条警告也判红，CI 里"声称已替代 git"过不去。
+
+要翻这个默认，先得有能指的东西，最小集合是：① 内容寻址的变更集存储（含跨会话并发写）；
+② diff / 三方合并；③ 与 CI 宿主的对接（否则必需检查无处安放）。
+`agent_claims.py` / `check_vendored.py` 解决的是"多会话抢同一个东西"和"多副本口径分叉"，
+都不等于版本控制本身。
+
+---
+
 ## 8. 非目标
 
+- **不假装替代 git**：`vcs.backend` 实际只能是 `git`；写成 `trit` 判红，直到真出现替代实现。
 - 不做全局用户配置（避免“一改影响所有项目”）。
 - 不自动改 `Cargo.toml` 的 `default` features。
 - 不替代各项目的构建系统；只给出**可解释的生效值 + 来源**。

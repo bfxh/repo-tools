@@ -1,0 +1,47 @@
+[
+ {
+  "name": "profiles: vcs.backend=trit 不再判红（设了就以为脱离了 git）",
+  "file": "scripts/profiles.py",
+  "old": "    if effective[\"vcs\"][\"backend\"] == \"trit\":\n        errors.append(",
+  "new": "    if False:\n        errors.append(",
+  "pkg": "scripts/profiles.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "profiles: profile=trit 把传输面写成 trit（默认谎报已替代 git）",
+  "file": "scripts/profiles.py",
+  "old": "        \"vcs\": {\"backend\": \"git\", \"hosting\": \"github\"},\n        \"math\": {\"reference\": MATH_REFERENCE, \"mode\": \"reference\", \"verified\": False},\n    },\n}\n\nTOP_KEYS",
+  "new": "        \"vcs\": {\"backend\": \"trit\", \"hosting\": \"github\"},\n        \"math\": {\"reference\": MATH_REFERENCE, \"mode\": \"reference\", \"verified\": False},\n    },\n}\n\nTOP_KEYS",
+  "pkg": "scripts/profiles.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "profiles: trit 项目不再提示传输面仍是 git（隐性默认回不来）",
+  "file": "scripts/profiles.py",
+  "old": "    if (\n        using_trit\n        and effective[\"vcs\"][\"backend\"] == \"git\"\n    ):",
+  "new": "    if False:",
+  "pkg": "scripts/profiles.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "profiles: vcs.hosting 不校验取值（svn/snapshot 之类照收）",
+  "file": "scripts/profiles.py",
+  "old": "        ((\"vcs\", \"hosting\"), VCS_HOSTINGS),",
+  "new": "",
+  "pkg": "scripts/profiles.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "profiles: 仓库配置里的 vcs.hosting 读不到（优先级链断一节）",
+  "file": "scripts/profiles.py",
+  "old": "        (\"vcs\", \"backend\"),\n        (\"vcs\", \"hosting\"),\n        (\"math\", \"reference\"),\n        (\"math\", \"mode\"),\n        (\"math\", \"verified\"),\n    ):\n        value = get_nested(repo_data, path)",
+  "new": "        (\"math\", \"reference\"),\n        (\"math\", \"mode\"),\n        (\"math\", \"verified\"),\n    ):\n        value = get_nested(repo_data, path)",
+  "pkg": "scripts/profiles.py",
+  "filter": "",
+  "runner": "python"
+ }
+]

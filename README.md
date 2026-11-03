@@ -52,6 +52,9 @@ python3 scripts/mathref.py status --repo .  # 计数 + verified=false
 - **报警可关**：`profile=trit` 却用 `gpu.backend=nvidia` 默认警告；
   `gpu.allow_nvidia=true` 或 `gpu.alarm=false` 关闭。
 - **成熟度闸门**：`profile=trit` 默认 `experimental`；`check --strict` 下警告判红。
+- **传输面不撒谎**：`vcs.backend` 三个 profile 全默认 `git`；启用三进制时警告
+  "传输与托管面仍是 git"，把它设成 `trit` 直接判红（还没有可指的替代实现）。
+  为什么默认还是 git/GitHub，见 [docs/PROFILES.md](docs/PROFILES.md) §7.1。
 
 详细字段、优先级、迁移路线见 [docs/PROFILES.md](docs/PROFILES.md)。
 
