@@ -1,0 +1,191 @@
+[
+ {
+  "name": "handoff-sync: NOW 超字节上限不报（摘要把成本推给下一个会话）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    if size > now_limit:",
+  "new": "    if False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: LEDGER 空也照样往下比",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    if not ledger.strip():",
+  "new": "    if False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 摘要点了不存在的编号也不报（假账放行）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    if ghosts:",
+  "new": "    if False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 编号差集算反（LEDGER 多的当成幽灵）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    if ghosts:\n        reds.append(\"拦：摘要点名了 LEDGER 里不存在的工作编号：\" + \" \".join(ghosts))",
+  "new": "    ghosts = sorted(ledger_ids - cited, key=lambda item: (len(item), item))\n    if ghosts:\n        reds.append(\"拦：摘要点名了 LEDGER 里不存在的工作编号：\" + \" \".join(ghosts))",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 摘要里的编号不参与核对",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    cited = set(A_ID.findall(now))",
+  "new": "    cited = set()",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: LEDGER 的编号集合拿成了摘要的",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    ledger_ids = set(A_ID.findall(ledger))",
+  "new": "    ledger_ids = set(A_ID.findall(now))",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 摘要没写最新 CHG 也放行",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "        if not pointer:",
+  "new": "        if False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 「最新 CHG」比对方向反了（写成一样才报）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "        elif newest and pointer.group(0) != newest:",
+  "new": "        elif newest and pointer.group(0) == newest:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: CHANGES 有内容也不做比对",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    if changes.strip():",
+  "new": "    if False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 已 DONE 还挂在摘要里不提示下沉",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "                         if line.strip().startswith(\"- DONE\")",
+  "new": "                         if False",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 连 CLOSED 段一起扫（真仓每条已完结的都报警）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    head = now.split(\"CLOSED\")[0]",
+  "new": "    head = now",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: open 项没进摘要不提示（没人接就等于没做）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    if forgotten:",
+  "new": "    if False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 「没提的 open 项」差集算反",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    forgotten = sorted(set(open_in(ledger)) - cited, key=lambda item: (len(item), item))",
+  "new": "    forgotten = sorted(cited - open_in(ledger), key=lambda item: (len(item), item))",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 三件套读不到也继续判（读不到＝没问题）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    if problems:",
+  "new": "    if False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 有拦也照样报 OK",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    if reds:",
+  "new": "    if False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 拦了还返回 0（门变摆设）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "        print(f\"FAIL 拦 {len(reds)} 条 ⇒ 账本与摘要不一致\")\n        return 1",
+  "new": "        print(f\"FAIL 拦 {len(reds)} 条 ⇒ 账本与摘要不一致\")\n        return 0",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: --self-test 被吞",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    if args.self_test:",
+  "new": "    if False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 没给 --dir 也去读（拿当前目录冒充账本）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    if not args.dir:",
+  "new": "    if False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 编号正则只认一位数字（A107 被切成 A10）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "A_ID = re.compile(r\"A\\d+\")",
+  "new": "A_ID = re.compile(r\"A\\d\")",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 最新 CHG 取不到（循环没有返回）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    for match in CHG_ID.finditer(changes):\n        return match.group(0)",
+  "new": "    for match in CHG_ID.finditer(changes):\n        pass",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: open/done 分类只看已完成的",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "        if stripped.startswith(\"- [ ]\"):",
+  "new": "        if stripped.startswith(\"- [x]\"):",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ }
+]
