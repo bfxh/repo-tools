@@ -54,7 +54,7 @@ TAG_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,31}$")
 SHA_OK = re.compile(r"^[0-9a-f]{7,40}$")
 PR_OK = re.compile(r"^(#\d+|https?://\S+)$")
 UNITS = ("ms", "ns", "ps", "s", "%", "x", "GB/s", "Gop/s", "MB", "MiB", "GiB", "kB",
-         "次", "条", "×", "个", "行", "篇", "页", "字节", "偏差", "存活", "命中率", "倍")
+         "次", "条", "×", "个", "行", "篇", "页", "字节", "偏差", "存活", "命中率", "倍", "拦", "警")
 REQUIRED_KEYS = {"id", "title", "tags", "kind", "status", "repo", "summary", "evidence"}
 OPTIONAL_KEYS = {"paths", "symbols", "tests", "docs", "related", "supersedes",
                  "replaced_by", "why", "added", "updated"}
@@ -535,6 +535,9 @@ def self_test() -> int:
         check("measurement 带读数 => 绿",
               [e for e in only(_fixture_entry(evidence=[{"type": "measurement", "value": "1.72x"}]))
                if "measurement" in e], [])
+        check("measurement 用本仓门禁口径（拦/警）也算读数",
+              only(_fixture_entry(evidence=[{"type": "measurement", "value": "现网首跑：拦 1 / 警 7"}])) == [],
+              True)
         check("measurement 只写单位不写数字 => 红",
               only(_fixture_entry(evidence=[{"type": "measurement", "value": "很多 ms"}])) != [], True)
         check("pr 证据写 PR246 => 红",
