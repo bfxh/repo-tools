@@ -33,6 +33,8 @@ MATURITY = ("experimental", "beta", "stable")
 BUILD_DEFAULTS = ("upstream", "trit")
 GPU_BACKENDS = ("nvidia", "trit", "auto")
 DOCS_MANAGERS = ("legacy", "trit")
+MATH_MODES = ("reference", "dependency", "off")
+MATH_REFERENCE = "https://github.com/openai/math"
 
 PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
     "legacy": {
@@ -40,26 +42,30 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "build": {"default": "upstream", "features": []},
         "gpu": {"backend": "nvidia", "allow_nvidia": True, "alarm": True},
         "docs": {"manager": "legacy"},
+        "math": {"reference": MATH_REFERENCE, "mode": "reference", "verified": False},
     },
     "hybrid": {
         "maturity": "beta",
         "build": {"default": "upstream", "features": ["gpu"]},
         "gpu": {"backend": "trit", "allow_nvidia": True, "alarm": True},
         "docs": {"manager": "trit"},
+        "math": {"reference": MATH_REFERENCE, "mode": "reference", "verified": False},
     },
     "trit": {
         "maturity": "experimental",
         "build": {"default": "trit", "features": ["gpu"]},
         "gpu": {"backend": "trit", "allow_nvidia": False, "alarm": True},
         "docs": {"manager": "trit"},
+        "math": {"reference": MATH_REFERENCE, "mode": "reference", "verified": False},
     },
 }
 
-TOP_KEYS = {"version", "profile", "maturity", "build", "gpu", "docs"}
+TOP_KEYS = {"version", "profile", "maturity", "build", "gpu", "docs", "math"}
 NESTED_KEYS = {
     "build": {"default", "features"},
     "gpu": {"backend", "allow_nvidia", "alarm"},
     "docs": {"manager"},
+    "math": {"reference", "mode", "verified"},
 }
 ENV_KEYS = {
     "TRIT_PROFILE": ("profile",),
@@ -69,6 +75,9 @@ ENV_KEYS = {
     "TRIT_GPU_BACKEND": ("gpu", "backend"),
     "TRIT_ALLOW_NVIDIA": ("gpu", "allow_nvidia"),
     "TRIT_ALARM": ("gpu", "alarm"),
+    "TRIT_MATH_REFERENCE": ("math", "reference"),
+    "TRIT_MATH_MODE": ("math", "mode"),
+    "TRIT_MATH_VERIFIED": ("math", "verified"),
 }
 
 
@@ -162,6 +171,7 @@ def validate(effective: dict[str, Any], sources: dict[str, str]) -> list[str]:
         (("build", "default"), BUILD_DEFAULTS),
         (("gpu", "backend"), GPU_BACKENDS),
         (("docs", "manager"), DOCS_MANAGERS),
+        (("math", "mode"), MATH_MODES),
     ]
     for path, allowed in checks:
         value = get_nested(effective, path)
@@ -172,9 +182,11 @@ def validate(effective: dict[str, Any], sources: dict[str, str]) -> list[str]:
     features = effective["build"]["features"]
     if not isinstance(features, list) or not all(isinstance(item, str) and item for item in features):
         errors.append("build.features 必须是非空字符串数组")
-    for path in (("gpu", "allow_nvidia"), ("gpu", "alarm")):
+    for path in (("gpu", "allow_nvidia"), ("gpu", "alarm"), ("math", "verified")):
         if not isinstance(get_nested(effective, path), bool):
             errors.append(f"{'.'.join(path)} 必须是布尔值")
+    if effective["math"]["mode"] != "off" and not str(effective["math"]["reference"]).strip():
+        errors.append("math.reference 不能为空（除非 math.mode=off）")
     return errors
 
 
@@ -213,6 +225,9 @@ def resolve(
         "gpu.allow_nvidia": "profile",
         "gpu.alarm": "profile",
         "docs.manager": "profile",
+        "math.reference": "profile",
+        "math.mode": "profile",
+        "math.verified": "profile",
     }
 
     # 仓库配置
@@ -224,6 +239,9 @@ def resolve(
         ("gpu", "allow_nvidia"),
         ("gpu", "alarm"),
         ("docs", "manager"),
+        ("math", "reference"),
+        ("math", "mode"),
+        ("math", "verified"),
     ):
         value = get_nested(repo_data, path)
         if value is not None:
@@ -237,7 +255,7 @@ def resolve(
         try:
             if path == ("build", "features"):
                 value = [item.strip() for item in raw.split(",") if item.strip()]
-            elif path in (("gpu", "allow_nvidia"), ("gpu", "alarm")):
+            elif path in (("gpu", "allow_nvidia"), ("gpu", "alarm"), ("math", "verified")):
                 value = parse_bool(raw, key)
             else:
                 value = raw
@@ -256,6 +274,9 @@ def resolve(
         ("allow_nvidia", ("gpu", "allow_nvidia")),
         ("alarm", ("gpu", "alarm")),
         ("docs_manager", ("docs", "manager")),
+        ("math_reference", ("math", "reference")),
+        ("math_mode", ("math", "mode")),
+        ("math_verified", ("math", "verified")),
     ):
         value = cli.get(key)
         if value is None:
@@ -275,6 +296,9 @@ def resolve(
                 ("gpu", "allow_nvidia"),
                 ("gpu", "alarm"),
                 ("docs", "manager"),
+                ("math", "reference"),
+                ("math", "mode"),
+                ("math", "verified"),
             ):
                 sources[".".join(reset)] = "profile"
             # 重新叠加仓库/环境（CLI profile 只替换 profile 本身）
@@ -287,6 +311,9 @@ def resolve(
                     ("gpu", "allow_nvidia"),
                     ("gpu", "alarm"),
                     ("docs", "manager"),
+                    ("math", "reference"),
+                    ("math", "mode"),
+                    ("math", "verified"),
                 ):
                     value2 = get_nested(data, path2)
                     if value2 is not None:
@@ -298,7 +325,7 @@ def resolve(
                 try:
                     if path2 == ("build", "features"):
                         value2 = [item.strip() for item in raw2.split(",") if item.strip()]
-                    elif path2 in (("gpu", "allow_nvidia"), ("gpu", "alarm")):
+                    elif path2 in (("gpu", "allow_nvidia"), ("gpu", "alarm"), ("math", "verified")):
                         value2 = parse_bool(raw2, key2)
                     else:
                         value2 = raw2
@@ -338,6 +365,10 @@ def resolve(
         )
     if effective["gpu"]["backend"] == "trit" and "gpu" not in effective["build"]["features"]:
         warnings.append("gpu.backend=trit 但 build.features 没有 gpu；构建不会编进 GPU 内核")
+    if effective["math"]["mode"] == "dependency" and not effective["math"]["verified"]:
+        warnings.append(
+            "openai/math 标为 dependency 但 verified=false；先改 reference 或完成验证"
+        )
 
     return Resolution(
         repo=repo,
@@ -366,6 +397,9 @@ def show(resolution: Resolution, fmt: str) -> int:
         print(f"TRIT_ALLOW_NVIDIA={str(resolution.effective['gpu']['allow_nvidia']).lower()}")
         print(f"TRIT_ALARM={str(resolution.effective['gpu']['alarm']).lower()}")
         print(f"TRIT_DOCS_MANAGER={resolution.effective['docs']['manager']}")
+        print(f"TRIT_MATH_REFERENCE={resolution.effective['math']['reference']}")
+        print(f"TRIT_MATH_MODE={resolution.effective['math']['mode']}")
+        print(f"TRIT_MATH_VERIFIED={str(resolution.effective['math']['verified']).lower()}")
     elif fmt == "cargo":
         print(",".join(resolution.effective["build"]["features"]))
     else:
@@ -419,6 +453,9 @@ def overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
         "allow_nvidia": args.allow_nvidia,
         "alarm": args.alarm,
         "docs_manager": args.docs_manager,
+        "math_reference": args.math_reference,
+        "math_mode": args.math_mode,
+        "math_verified": args.math_verified,
     }
 
 
@@ -441,6 +478,14 @@ def add_overrides(parser: argparse.ArgumentParser) -> None:
         help="三进制 + NVIDIA 时是否报警",
     )
     parser.add_argument("--docs-manager", choices=DOCS_MANAGERS)
+    parser.add_argument("--math-reference", help="默认 https://github.com/openai/math")
+    parser.add_argument("--math-mode", choices=MATH_MODES)
+    parser.add_argument(
+        "--math-verified",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="openai/math 是否已人工验证（默认 false）",
+    )
 
 
 def self_test() -> int:
@@ -468,6 +513,16 @@ def self_test() -> int:
             assert res.effective["gpu"]["backend"] == "nvidia"
             assert not res.errors
             assert not res.warnings
+
+        def math_default_reference() -> None:
+            res = resolve(repo, env={})
+            assert res.effective["math"]["mode"] == "reference"
+            assert res.effective["math"]["reference"] == "https://github.com/openai/math"
+            assert res.effective["math"]["verified"] is False
+
+        def math_dependency_warns() -> None:
+            res = resolve(repo, env={}, cli={"math_mode": "dependency"})
+            assert any("verified=false" in warning for warning in res.warnings), res.warnings
 
         def repo_trit() -> None:
             (repo / ".trit").mkdir()
@@ -542,6 +597,8 @@ def self_test() -> int:
             assert res.sources["gpu.backend"] == "auto(profile)"
 
         case("default legacy", default_legacy)
+        case("math default reference", math_default_reference)
+        case("math dependency warns", math_dependency_warns)
         case("repo trit", repo_trit)
         case("env overrides repo", env_overrides_repo)
         case("allow_nvidia silences", allow_nvidia_silences)
@@ -557,7 +614,7 @@ def self_test() -> int:
             print(f"FAIL self-test {failure}")
         print(f"self-test FAIL（{len(failures)} 项）")
         return 1
-    print("PASS self-test：10 个用例（默认/覆盖/报警/profile/初始化/auto）")
+    print("PASS self-test：12 个用例（默认/覆盖/报警/profile/初始化/auto/数学参考）")
     return 0
 
 

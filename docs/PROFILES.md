@@ -30,6 +30,9 @@
 | `gpu.allow_nvidia` | `true`（legacy） | 布尔 | 允许三进制项目用 NVIDIA |
 | `gpu.alarm` | `true` | 布尔 | 三进制 + NVIDIA 时报警 |
 | `docs.manager` | `legacy` | `legacy` / `trit` | 文档由谁管理 |
+| `math.reference` | `https://github.com/openai/math` | URL | 默认数学参考目录 |
+| `math.mode` | `reference` | `reference` / `dependency` / `off` | 参考、依赖、关闭 |
+| `math.verified` | `false` | 布尔 | 目录未经本项目验证 |
 
 三档 profile：
 
@@ -38,6 +41,20 @@
 | `legacy` | upstream | nvidia | legacy | stable | 默认，所有旧项目 |
 | `hybrid` | upstream | trit | trit | beta | 先在 GPU/文档试 |
 | `trit` | trit | trit | trit | experimental | 全量试用 |
+
+所有 profile 默认都带同一个数学参考：
+
+```json
+"math": {
+  "reference": "https://github.com/openai/math",
+  "mode": "reference",
+  "verified": false
+}
+```
+
+- `reference`：只读目录，**不参与构建**；`mathref.py` 按需建本地索引。
+- `dependency`：才允许被构建/生成消费；`verified=false` 时 `check` 报警。
+- `off`：不引用。
 
 ---
 
@@ -76,6 +93,7 @@
 | `profile=trit` 且 `maturity != stable` | 警告“仍是 experimental” |
 | 已启用三进制但 `gpu.backend=nvidia` | 警告；`allow_nvidia=true` 或 `alarm=false` 关闭 |
 | `gpu.backend=trit` 但 `build.features` 没有 `gpu` | 警告：构建不会编进 GPU 内核 |
+| `math.mode=dependency` 且 `math.verified=false` | 警告：未验证的目录不能当依赖 |
 | `check --strict` | 任何警告都判红 |
 
 > “默认报警，可显式关闭”对应你说的“默认报警 关闭”：

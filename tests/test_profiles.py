@@ -37,6 +37,11 @@ class Defaults(ProfileRoot):
         self.assertEqual(resolution.effective["gpu"]["backend"], "nvidia")
         self.assertEqual(resolution.errors, [])
         self.assertEqual(resolution.warnings, [])
+        self.assertEqual(resolution.effective["math"]["mode"], "reference")
+        self.assertEqual(
+            resolution.effective["math"]["reference"], "https://github.com/openai/math"
+        )
+        self.assertFalse(resolution.effective["math"]["verified"])
         self.assertFalse((self.repo / ".trit").exists(), "show/check must not create .trit")
 
     def test_repo_profile_trit(self) -> None:
@@ -98,6 +103,16 @@ class Alarms(ProfileRoot):
         resolution = profiles.resolve(self.repo, env={})
         self.assertEqual(resolution.effective["gpu"]["backend"], "trit")
         self.assertEqual(resolution.sources["gpu.backend"], "auto(profile)")
+
+    def test_math_dependency_requires_verification(self) -> None:
+        self.write_config(
+            {"version": 1, "math": {"mode": "dependency", "verified": False}}
+        )
+        resolution = profiles.resolve(self.repo, env={})
+        self.assertTrue(
+            any("verified=false" in warning for warning in resolution.warnings),
+            resolution.warnings,
+        )
 
 
 class Validation(ProfileRoot):
