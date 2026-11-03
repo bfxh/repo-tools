@@ -174,6 +174,9 @@ class NestedAutoflow(ChaosRoot):
         self.assertEqual((self.root / "a.txt").read_bytes(), b"orig")
 
 
+ROWS_PENDING = '[{"name": "CI", "bucket": "pending"}]'
+ROWS_PASS = '[{"name": "CI", "bucket": "pass"}]'
+
 class GhMisbehaves(ChaosRoot):
     def _fake(self, mapping):
         def fake_gh(args, cwd=None):
@@ -200,11 +203,11 @@ class GhMisbehaves(ChaosRoot):
         def fake_gh(args, cwd=None):
             if args[:2] == ["pr", "checks"]:
                 if "--watch" in args:
-                    return types.SimpleNamespace(returncode=0, stdout="CI\tpass\t1s\thttps://x\n")
+                    return types.SimpleNamespace(returncode=0, stdout=ROWS_PASS)
                 state["checks"] += 1
                 if state["checks"] < 3:
-                    return types.SimpleNamespace(returncode=8, stdout="CI\tpending\t0\thttps://x\n")
-                return types.SimpleNamespace(returncode=0, stdout="CI\tpass\t1s\thttps://x\n")
+                    return types.SimpleNamespace(returncode=8, stdout=ROWS_PENDING)
+                return types.SimpleNamespace(returncode=0, stdout=ROWS_PASS)
             if args[:2] == ["pr", "merge"]:
                 state["merged"] += 1
                 return types.SimpleNamespace(returncode=0, stdout="")
@@ -223,7 +226,7 @@ class GhMisbehaves(ChaosRoot):
     def test_merge_gives_up_when_never_green(self) -> None:
         def fake_gh(args, cwd=None):
             if args[:2] == ["pr", "checks"]:
-                return types.SimpleNamespace(returncode=8, stdout="CI\tpending\t0\thttps://x\n")
+                return types.SimpleNamespace(returncode=8, stdout=ROWS_PENDING)
             return types.SimpleNamespace(returncode=0, stdout="")
 
         original = gitflow.gh

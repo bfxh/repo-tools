@@ -55,6 +55,8 @@ def normalized_snapshot_id(text: str) -> str:
     return re.sub(r"tmp[A-Za-z0-9_]+", "<tmp>", text)
 
 
+ROWS_PASS = '[{"name": "CI", "bucket": "pass"}]'
+
 class TempRoot(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -403,7 +405,7 @@ class GitflowScenarios(TempRoot):
         def fake_gh(args: list[str], cwd=None):
             calls.append(args)
             if args[:2] == ["pr", "checks"]:
-                return types.SimpleNamespace(returncode=0, stdout="CI\tpass\t1s\n")
+                return types.SimpleNamespace(returncode=0, stdout=ROWS_PASS)
             return types.SimpleNamespace(returncode=0, stdout="")
 
         original_root, original_gh = gitflow.ROOT, gitflow.gh
@@ -476,7 +478,7 @@ class GitflowScenarios(TempRoot):
             if args[:3] == ["pr", "list", "--repo"]:
                 return types.SimpleNamespace(returncode=0, stdout='[{"number": 7}]')
             if args[:2] == ["pr", "checks"]:
-                return types.SimpleNamespace(returncode=0, stdout="CI\tpass\t1s\n")
+                return types.SimpleNamespace(returncode=0, stdout=ROWS_PASS)
             return types.SimpleNamespace(returncode=0, stdout="")
 
         original_root, original_gh = gitflow.ROOT, gitflow.gh
@@ -685,19 +687,36 @@ class GitflowScenarios(TempRoot):
             {"number": 2, "title": "b", "headRefName": "feat/b", "baseRefName": "feat/a"},
             {"number": 3, "title": "c", "headRefName": "feat/c", "baseRefName": "feat/missing"},
         ]
-        original_gh = gitflow.gh
+        original_gh, original_remote = gitflow.gh, gitflow.remote_heads
         gitflow.gh = lambda args, cwd=None: types.SimpleNamespace(returncode=0, stdout=json.dumps(prs))
+        gitflow.remote_heads = lambda root: {"main", "feat/a", "feat/b", "feat/c"}
         buf = io.StringIO()
         try:
             with contextlib.redirect_stdout(buf):
                 code = gitflow.stack("o/r", remote_state=True)
         finally:
-            gitflow.gh = original_gh
+            gitflow.gh, gitflow.remote_heads = original_gh, original_remote
         out = buf.getvalue()
-        self.assertEqual(code, 0)
         self.assertIn("main → feat/a → feat/b", out)
         self.assertIn("警告", out)
-        self.assertIn("feat/missing", out)
+        self.assertEqual(code, 1, "base 已消失的那个 PR 必须判红，不能只警告")
+        self.assertIn("#3", out)
+        self.assertIn("base=feat/missing", out)
+
+    def test_stack_without_remote_branch_listing_is_red(self) -> None:
+        prs = [{"number": 1, "title": "a", "headRefName": "feat/a", "baseRefName": "main"}]
+        original_gh, original_remote = gitflow.gh, gitflow.remote_heads
+        gitflow.gh = lambda args, cwd=None: types.SimpleNamespace(returncode=0, stdout=json.dumps(prs))
+        gitflow.remote_heads = lambda root: set()
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                code = gitflow.stack("o/r", remote_state=True)
+        finally:
+            gitflow.gh, gitflow.remote_heads = original_gh, original_remote
+        self.assertEqual(code, 1, "读不到远端分支时分不清「base 被删」和「断网」，不许放行")
+        self.assertIn("读不到远端分支", buf.getvalue())
+
 
     def test_protect_reports_required_rules(self) -> None:
         def fake_gh(args, cwd=None):
