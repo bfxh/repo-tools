@@ -90,23 +90,71 @@ def overlaps(a: list[str], b: list[str]) -> bool:
     return False
 
 
+def crate_of_repo(repo: str) -> str:
+    """仓名尾段：`bfxh/trit-immune` ⇒ `trit-immune`。"""
+    return (repo or "").rstrip("/").split("/")[-1]
+
+
+def crate_relatives(paths: list[str]) -> dict[str, list[str]]:
+    """把 `crates/<crate>/<rest>` 归一成 {crate: [rest]}，其余路径忽略。"""
+    out: dict[str, list[str]] = {}
+    for path in paths:
+        parts = path.strip().strip("/").split("/")
+        if len(parts) >= 3 and parts[0] == "crates" and parts[1]:
+            out.setdefault(parts[1], []).append("/".join(parts[2:]))
+    return out
+
+
+def crate_twin(left: dict, right: dict) -> str:
+    """跨仓的「同一份代码两个落点」；不相交返回空串。
+
+    实测漏网形状（2026-11-03）：一方声明 `bfxh/trit-immune` 的 `src/bin/trit.rs`，
+    另一方声明 `bfxh/trit` 的 `crates/trit-immune/src` ⇒ 仓名不同、字面路径也不相交，
+    旧口径一声不吭，而两边改的是同一只文件的**两份副本**（一边搬测试、一边加围栏，
+    两边都从 719 行那份出发）。
+    """
+    left_repo = left["repo"].strip()
+    right_repo = right["repo"].strip()
+    if not left_repo or not right_repo or left_repo == right_repo:
+        return ""
+    right_crate = crate_of_repo(right_repo)
+    left_crates = crate_relatives(left["paths"])
+    if right_crate in left_crates and overlaps(left_crates[right_crate], right["paths"]):
+        return right_crate
+    left_crate = crate_of_repo(left_repo)
+    right_crates = crate_relatives(right["paths"])
+    if left_crate in right_crates and overlaps(right_crates[left_crate], left["paths"]):
+        return left_crate
+    return ""
+
 def conflicts(claims: list[dict], at: int) -> tuple[list[str], list[str]]:
     """(拦路:重叠的双方点名, 警告:过期未收 / 跨仓同名路径)。
 
-    拦：**同一个仓**里两个在效声明 ⇒ 一定撞（不管路径写没写、写的是不是同一批）。
-    不同仓 ⇒ 不拦。两份代码在两个仓里各有一份（单体仓的 `crates/x/src/*` 与独立仓的 `src/*`）
-    路径名相交是常态，判红就是把闸门自己变成假红源头；但这种情况要**出声**，所以给警告。
+    拦：**同一个仓 + 路径相交**（含"整仓声明"：空路径集与谁都重叠）⇒ 一定撞，双方点名。
+    警：同一个仓但路径不相交 ⇒ 不拦——两个智能体各改各的文件是常态，一律判红等于把闸门自己
+    变成噪音源头（第二天就有人绕过它）；但**照样点名双方**，共享工作树/分支这件事得有人记着。
+    不同仓但**同一份代码的两个落点**（独立仓 `x` 对上单体仓 `crates/x/…`）⇒ 警，并点出 crate 名；
+    不同仓、字面路径名相交 ⇒ 也只警告：单体仓的 `crates/x/src/*` 与独立仓的 `src/*` 就是这个形状。
     """
     red, warn = [], []
     active = [c for c in claims if live(c, at)]
     for index, left in enumerate(active):
         for right in active[index + 1:]:
             same_repo = bool(left["repo"].strip()) and left["repo"].strip() == right["repo"].strip()
-            if same_repo:
+            if same_repo and overlaps(left["paths"], right["paths"]):
                 red.append(f"{left['who']} ↔ {right['who']}"
-                           f"｜同一个仓 {left['repo']}"
+                           f"｜同一个仓 {left['repo']} 且路径相交"
                            f"｜路径 {left['paths'] or ['(整个仓)']} × {right['paths'] or ['(整个仓)']}"
                            f"｜{left['note'] or '-'} / {right['note'] or '-'}")
+            elif same_repo:
+                warn.append(f"{left['who']} ↔ {right['who']}｜同一个仓 {left['repo']} 但路径不相交"
+                            f"（{left['paths'] or ['(整个仓)']} × {right['paths'] or ['(整个仓)']}）"
+                            "——不拦，但工作树/分支是共享的：切分支、改台账前先对齐，别把对方的 HEAD 带走")
+            elif crate_twin(left, right):
+                warn.append(f"{left['who']}@{left['repo']} 与 {right['who']}@{right['repo']} 改的是"
+                            f"「同一份代码的两个落点」（crate {crate_twin(left, right)}：一边是独立仓、"
+                            f"另一边是单体仓里的 crates/{crate_twin(left, right)}/）——不拦，但这是两份副本："
+                            "一边搬文件、一边改原件，sync 时必撞；动手前互相报一声路径形状")
             elif overlaps(left["paths"], right["paths"]):
                 warn.append(f"{left['who']}@{left['repo']} 与 {right['who']}@{right['repo']} "
                             f"路径名相交（{left['paths']} × {right['paths']}）"
@@ -248,6 +296,31 @@ def self_test() -> int:
     # 正例：路径不相交 ⇒ 绿（注意 repo 不同但 paths 名字像，也不该因为字符串像就判红）
     red, warn = conflicts([a, b], base)
     check_at("路径不相交时判绿", red, [])
+    check_at("跨仓同一份代码的两个落点 ⇒ 警并点名 crate",
+             [w for w in warn if "两个落点" in w and "trit-immune" in w] != [], True)
+    check_at("反向也算（左边才是独立仓）",
+             crate_twin({**b, "who": "z"}, {**a, "who": "q"}), "trit-immune")
+    check_at("同一个仓不报两个落点（那是拦/警的活）",
+             crate_twin(a, {**b, "repo": "bfxh/trit"}), "")
+    check_at("同一个仓即使形状像两个落点也不报（拦/警两档不许串）",
+             crate_twin({"repo": "bfxh/trit-immune", "paths": ["crates/trit-immune/src"], "who": "x"},
+                        {"repo": "bfxh/trit-immune", "paths": ["src/bin/trit.rs"], "who": "y"}), "")
+    check_at("不相干的 crate 不报（独立仓 trit-re vs 单体仓 crates/trit-net）",
+             crate_twin({"repo": "bfxh/trit", "paths": ["crates/trit-net/src"], "who": "x"},
+                        {"repo": "bfxh/trit-re", "paths": ["src/pe.rs"], "who": "y"}), "")
+    check_at("整仓声明也算两个落点（paths 为空 = 全部）",
+             crate_twin(a, {"repo": "bfxh/trit-immune", "paths": [], "who": "z"}), "trit-immune")
+    check_at("crate_relatives 只认 crates/<名>/ 形状",
+             crate_relatives(["crates/trit-net/src", "scripts/x.py", "crates"]),
+             {"trit-net": ["src"]})
+    check_at("仓名尾段即 crate 名", crate_of_repo("bfxh/trit-immune/"), "trit-immune")
+    twin_a = {"id": "t1", "who": "Q", "repo": "bfxh/trit", "paths": ["crates/trit-circuit/src"],
+              "ts": base, "ttl": 90, "note": "拆文件"}
+    twin_b = {"id": "t2", "who": "Z", "repo": "bfxh/trit-circuit", "paths": ["src/sdf.rs"],
+              "ts": base, "ttl": 90, "note": "独立仓改原件"}
+    red, warn = conflicts([twin_a, twin_b], base)
+    check_at("两个落点只警不拦（不同仓不该拦，但必须留痕）",
+             (red, [w for w in warn if "两个落点" in w] != []), ([], True))
     # 反证 1：同一个仓 + 路径前缀相交（src 覆盖 src/tls.rs）⇒ 红，双方都在文案里
     red, _ = conflicts([a, {**b, "repo": "bfxh/trit",
                              "paths": ["crates/trit-immune/src/tls.rs"]}], base)
@@ -258,8 +331,10 @@ def self_test() -> int:
     check_at("跨仓同名路径不判红", red, [])
     check_at("跨仓同名路径要警告", len(warn), 1)
     # 反证 2：同一个 repo + 分支，路径不同也算撞（今天真实形状：两份同名 crate）
-    red, _ = conflicts([a, same], base)
-    check_at("同仓不同路径也拦", len(red), 1)
+    red, warn = conflicts([a, same], base)
+    check_at("同仓但路径不相交 ⇒ 不拦（否则闸门自己变噪音源头）", red, [])
+    check_at("同仓路径不相交也要点名双方（共享工作树的账）",
+             (len(warn), "Qoder ↔ zodER" in warn[0], "HEAD" in warn[0]), (1, True, True))
     # 反证 3：空路径集 = 整个仓，与同仓的任何声明都重叠
     red, _ = conflicts([a, {**b, "repo": "bfxh/trit", "paths": []}], base)
     check_at("整仓声明与任何人在建的都算重叠", len(red), 1)
@@ -268,7 +343,8 @@ def self_test() -> int:
     # 反证 4：过期的不算撞，但要单列成警告（不能悄悄消失）
     red, warn = conflicts([a, {**b, "ts": base - 60 * 600}], base)
     check_at("过期声明不再拦路", red, [])
-    check_at("过期未收要警告", len(warn), 1)
+    check_at("过期未收要警告（必须点名过期这条，不能被别的警告顶数）",
+             (len(warn), "过期" in warn[0]), (1, True))
     # 反证 5：坏行必须判红（不知道是谁在动什么 ≠ 没人动）
     with tempfile.TemporaryDirectory() as tmp:
         path = pathlib.Path(tmp) / "CLAIMS.md"
@@ -298,12 +374,16 @@ def self_test() -> int:
                                   "--paths", "src/a"]), 0)
         check_at("ttl=0 当永久占用被拒",
                  cmd_claim(path, ["claim", "--who", "X", "--repo", "o/r", "--ttl", "0"]), 1)
-        check_at("另一会话同仓 ⇒ 拦并点名双方",
+        check_at("另一会话同仓但路径不相交 ⇒ 登记成功（只提醒不拦）",
                  cmd_claim(path, ["claim", "--who", "zodER", "--repo", "o/r",
-                                  "--paths", "src/b"]), 1)
+                                  "--paths", "src/z"]), 0)
+        check_at("另一会话同仓且路径相交 ⇒ 拦并点名双方",
+                 cmd_claim(path, ["claim", "--who", "Third", "--repo", "o/r",
+                                  "--paths", "src/a/inner"]), 1)
         check_at("release 能收掉", cmd_release(path, ["--who", "Qoder"]), 0)
-        check_at("冲突那条也已登记（等双方对齐后各自 release）", len(read_claims(path)), 1)
+        check_at("判红那条也是登记过的（等双方对齐后各自 release）", len(read_claims(path)), 2)
         check_at("第二条也收得掉", cmd_release(path, ["--who", "zodER"]), 0)
+        check_at("第三条也收得掉", cmd_release(path, ["--who", "Third"]), 0)
         check_at("收完确实空了", read_claims(path), [])
         check_at("含 | 的备注不会把名单写坏",
                  cmd_claim(path, ["claim", "--who", "Third", "--repo", "third/r",
