@@ -84,6 +84,32 @@ python3 scripts/techmap.py add --file entry.json          # 核验通过才入�
 
 自测 56 条 + 场景测试 21 条 + 变异登记 14 条（本机 0 存活）。
 
+## 认领账本（agent_claims / claims_audit）
+
+多智能体同时改同一个仓时，"谁在动什么"必须有人登记，而且登记要能被机器判红。
+
+```bash
+python3 scripts/agent_claims.py claim --who qoder:5a48f9e0 --repo bfxh/trit --paths crates/trit-gpu scripts
+python3 scripts/agent_claims.py renew --who qoder:5a48f9e0            # 长任务心跳（TTL 上限 240 分钟）
+python3 scripts/agent_claims.py release --who qoder:5a48f9e0
+python3 scripts/agent_claims.py check                                  # 重叠/同名 id/过期/who 写法
+python3 scripts/agent_claims.py gate --who qoder:5a48f9e0 --paths crates/trit-gpu/src
+python3 scripts/claims_audit.py --repo bfxh/trit=D:/KF/trit            # 脏 worktree × 在效声明
+```
+
+四条硬口径（都判红或给出照抄值）：
+
+1. **`who` 必须是 `宿主:会话id`**（`qoder` / `zcode` / `codex` / `yan` / `eac` / `human`）。
+   历史写法 `Qoder(sess dc34ac09)`、`qoder-56607d26`、`zodER(ZCode)` 会被归一；
+   写入时归不出就拒收——不归一，`release --who` 精确匹配就收不掉自己的声明。
+2. **TTL 上限 240 分钟**，长任务用 `renew` 续期（`renewed` 列记次数）。
+3. **同名 id 判红**（与 `trit-orch` 的 `ClaimStore::from_claims` 对齐）。
+4. **脏 worktree 没人认领 ⇒ 拦**（`claims_audit.py`）：`git status` 有未提交改动，
+   却没有任何在效声明覆盖其中任一文件；只有过期声明时降为警告（那个人可能还在跑）。
+
+> `gate()` 里的 `who` 按**原文**比较（与库同一口径、共享表也是这么写）；归一只发生在账本边界。
+> 两件事混在一起，共享判定表就会跟着一侧的规则漂。
+
 ## 镜像文件（多副本口径）
 
 有些工具脚本在别的仓也有一份副本（`agent_claims.py` 就是）。副本各自跑各自的 CI 时，
