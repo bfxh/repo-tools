@@ -4,16 +4,23 @@
     {
       "path": "scripts/agent_claims.py",
       "source": "bfxh/trit",
-      "synced_from_commit": "f554f2f",
-      "sha256": "aa72de05ef4d605f7a2c78bc8bbcc451642c50902f3e64e7fde41c1e8e286b36",
+      "synced_from_commit": "f6fb6ce",
+      "sha256": "fc8f6eb88c138531dd5cc173557c1b07a88bbf81c0129b11fc352b19e448b8d1",
       "why": "多智能体认领闸门；上游是单体仓那份（判定口径 + crate 两个落点的识别）"
     },
     {
       "path": "scripts/mutants/scripts__agent_claims.py.json",
       "source": "bfxh/trit",
-      "synced_from_commit": "f554f2f",
-      "sha256": "8c5a9e1d787c272913604da2e24dab1cb8dc59e3967bcd2f9252d64531dd0af4",
+      "synced_from_commit": "f6fb6ce",
+      "sha256": "b30678df5b71fcd837d2112b40cd0ff11d3a25d42563975948a580be9140a583",
       "why": "上面那只脚本的变异登记表；表跟实现同源，不单独演化"
+    },
+    {
+      "path": "fixtures/claim_gate_cases.json",
+      "source": "bfxh/trit",
+      "synced_from_commit": "f6fb6ce",
+      "sha256": "eae85569235a620cf0e0b2c66f210411395cbc260cda70f631462ce75cc4c501",
+      "why": "认领闸门三态判定的共享表：上游在 crates/trit-orch/tests/fixtures/，这里没有 crates/ 目录，所以 agent_claims.py 的 PARITY_TABLES 第二个候选位置就是 fixtures/。表只有一份口径，改判定必须两边同改"
     }
   ]
 }

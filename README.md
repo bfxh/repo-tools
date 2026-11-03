@@ -58,6 +58,22 @@ python3 scripts/mathref.py status --repo .  # 计数 + verified=false
 
 详细字段、优先级、迁移路线见 [docs/PROFILES.md](docs/PROFILES.md)。
 
+## 镜像文件（多副本口径）
+
+有些工具脚本在别的仓也有一份副本（`agent_claims.py` 就是）。副本各自跑各自的 CI 时，
+**两边都绿而规则相反**是已经发生过的事故（上游"同仓且路径相交才拦"，这里"同仓就拦"）。
+
+- `scripts/vendored.json` 记每个镜像文件同步那一刻的 sha256；
+- `python3 scripts/check_vendored.py` 比对本地副本：缺账 / 缺 sha / 文件没了 / sha 对不上 ⇒ 判红。
+  CI 每次都跑，只改一份副本会被拦下；
+- 认领判定的**三态用例表**也镜像在这里：`fixtures/claim_gate_cases.json`
+  （上游在 `crates/trit-orch/tests/fixtures/`）。库里的 `ClaimStore::gate` 与这里 CLI 的 `gate()`
+  读同一张表；读不到表判红，而不是跳过。
+- 同步方向只有一个：**上游改完 → 这里 copy → 更新 `vendored.json` 里的 sha**。
+  反向改副本正是事故来源。
+
+> 这层只证伪"本地副本被单独改过"。这里没有上游读权限，所以不假装能发现上游漂移。
+
 ## 数学参考（openai/math）
 
 - 默认参考：https://github.com/openai/math（Apache-2.0，721 手稿 / 373 families）。
