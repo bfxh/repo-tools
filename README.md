@@ -58,6 +58,32 @@ python3 scripts/mathref.py status --repo .  # 计数 + verified=false
 
 详细字段、优先级、迁移路线见 [docs/PROFILES.md](docs/PROFILES.md)。
 
+## 技术标签索引（techmap）
+
+「每个新功能、每项单独技术都能按标签查到」——不用我重新找，也不用 AI 满仓 grep。
+
+```bash
+python3 scripts/techmap.py search "bank conflict"        # 关键词（标签优先）
+python3 scripts/techmap.py query --tag gpu --kind technique --status landed
+python3 scripts/techmap.py show wf32-layer-chain          # 一条技术的完整记录
+python3 scripts/techmap.py where crates/trit-gpu/src/matmul_wf32_plan.rs   # 反查：这个文件牵动哪些技术
+python3 scripts/techmap.py tests wf32-layer-chain         # 直接喂给 cargo test 的名单
+python3 scripts/techmap.py check                          # 门禁：引用烂了/证据空了就红
+python3 scripts/techmap.py tags                            # 标签词表与频次
+python3 scripts/techmap.py suggest --repo bfxh/trit --range main..HEAD     # 自动标签：只提议
+python3 scripts/techmap.py add --file entry.json          # 核验通过才入库
+```
+
+索引默认在 `D:\KF\_handoff\TECHMAP.json`（`--map` / `TRIT_TECHMAP` 覆盖），跨仓靠 `roots` 定位：
+
+- 每条记录必须有**证据**：`pr`(#123) / `commit`(sha) / `measurement`(**带数字和单位**) / `doc` / `log`；
+- `paths` / `symbols` / `tests` / `docs` 按 `roots` 的 **git ref** 核验（不是只看磁盘检出——
+  这台机器 28 个 worktree 各站一支分支，只认检出会让索引在无关分支上集体假红）；
+- 测试引用写成 `文件::测试名`，**测试被改名或删除 ⇒ 索引判红**——这条是"记录不老化"的关键；
+- `status=retracted` 必须写 `replaced_by`；root 没配只警告（换台机器不炸一堆红）。
+
+自测 56 条 + 场景测试 21 条 + 变异登记 14 条（本机 0 存活）。
+
 ## 镜像文件（多副本口径）
 
 有些工具脚本在别的仓也有一份副本（`agent_claims.py` 就是）。副本各自跑各自的 CI 时，

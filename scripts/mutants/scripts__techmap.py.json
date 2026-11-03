@@ -1,0 +1,128 @@
+[
+ {
+  "name": "techmap: 空索引也报绿（没条目等于没有门）",
+  "file": "scripts/techmap.py",
+  "old": "    if not isinstance(entries, list) or not entries:",
+  "new": "    if not isinstance(entries, list):",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 重复 id 不再判红（两条记录会被当成同一条）",
+  "file": "scripts/techmap.py",
+  "old": "    if len(known) != len(ids):",
+  "new": "    if False:",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 撤回不要求写去处（记录消失得无声无息）",
+  "file": "scripts/techmap.py",
+  "old": "    if entry.get(\"status\") == \"retracted\" and not entry.get(\"replaced_by\"):",
+  "new": "    if False:",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 未知字段被放过（拼错的字段悄悄不生效）",
+  "file": "scripts/techmap.py",
+  "old": "    if unknown:\n        errors.append(f\"{entry.get('id', '?')} 有未知字段：{', '.join(sorted(unknown))}\")",
+  "new": "    if False:\n        pass",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 标签不再要求归一（GPU 与 gpu 变成两个标签）",
+  "file": "scripts/techmap.py",
+  "old": "        elif normalize_tag(tag) != tag:",
+  "new": "        elif False:",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 摘要薄不薄不再判（一句话也算记录）",
+  "file": "scripts/techmap.py",
+  "old": "    if _is_thin(str(entry.get(\"summary\", \"\"))):",
+  "new": "    if False:",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: measurement 不校验数字与单位（把传闻写成读数）",
+  "file": "scripts/techmap.py",
+  "old": "    if not re.search(r\"\\d\", value):\n        return False",
+  "new": "    if False:\n        return False",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 测试名不再核验（测试被删改名，索引还亮着绿）",
+  "file": "scripts/techmap.py",
+  "old": "        if test_name and test_name not in source.text(target):",
+  "new": "        if False:",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 符号所在文件不核验",
+  "file": "scripts/techmap.py",
+  "old": "        if not source.exists(_file):\n            red.append(f\"{identifier} 符号所在文件不存在：{_file}\")",
+  "new": "        if False:\n            pass",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 搜索不再让标签优先（找 bank-conflict 排不到前面）",
+  "file": "scripts/techmap.py",
+  "old": "            if token in tags:\n                score += 5",
+  "new": "            if token in tags:\n                score += 0",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 多标签查询退化成 OR（--tag 越加越宽）",
+  "file": "scripts/techmap.py",
+  "old": "            matched = bool(have & set(want)) if any_tag else set(want) <= have",
+  "new": "            matched = bool(have & set(want))",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 反查不看标签（按标签问不出条目）",
+  "file": "scripts/techmap.py",
+  "old": "                  + _strings(entry, \"docs\") + [str(t).lower() for t in entry.get(\"tags\", [])])",
+  "new": "                  + _strings(entry, \"docs\"))",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 自动标签丢掉 commit scope（perf(gpu) 不再带出 gpu）",
+  "file": "scripts/techmap.py",
+  "old": "        scope = SCOPE_OK.match(message)\n        if scope:",
+  "new": "        scope = None\n        if scope:",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "techmap: 没配 root 时判红而不是警告（换台机器满屏假红）",
+  "file": "scripts/techmap.py",
+  "old": "                warn.append(f\"{identifier} 的仓 {repo!r} 没配 root ⇒ 引用没被核验\")",
+  "new": "                red.append(f\"{identifier} 的仓 {repo!r} 没配 root\")",
+  "pkg": "scripts/techmap.py",
+  "filter": "",
+  "runner": "python"
+ }
+]
