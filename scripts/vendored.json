@@ -1,0 +1,19 @@
+{
+  "note": "镜像自上游仓的文件清单：内容必须与上游逐字一致。这里记的是同步那一刻的 sha256，CI 每次比对本地文件；对不上就是有人只改了一份副本。真实事故（2026-11-03）：bfxh/trit 与 bfxh/repo-tools 两份 agent_claims.py 的判定规则相反，而两边的 --self-test 各自都是绿的。",
+  "files": [
+    {
+      "path": "scripts/agent_claims.py",
+      "source": "bfxh/trit",
+      "synced_from_commit": "f554f2f",
+      "sha256": "aa72de05ef4d605f7a2c78bc8bbcc451642c50902f3e64e7fde41c1e8e286b36",
+      "why": "多智能体认领闸门；上游是单体仓那份（判定口径 + crate 两个落点的识别）"
+    },
+    {
+      "path": "scripts/mutants/scripts__agent_claims.py.json",
+      "source": "bfxh/trit",
+      "synced_from_commit": "f554f2f",
+      "sha256": "8c5a9e1d787c272913604da2e24dab1cb8dc59e3967bcd2f9252d64531dd0af4",
+      "why": "上面那只脚本的变异登记表；表跟实现同源，不单独演化"
+    }
+  ]
+}

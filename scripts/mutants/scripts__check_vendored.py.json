@@ -1,0 +1,47 @@
+[
+ {
+  "name": "vendored: 没有镜像账也报绿（有副本却没账正是事故形状）",
+  "file": "scripts/check_vendored.py",
+  "old": "        return [f\"镜像记录读不到：{record_path}（有副本却没账 ⇒ 判红）\"], [], []",
+  "new": "        return [], [], []",
+  "pkg": "scripts/check_vendored.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "vendored: 缺 sha 的条目只记状态不拦（对不了账却放行）",
+  "file": "scripts/check_vendored.py",
+  "old": "            rows.append({\"path\": entry[\"path\"], \"state\": \"unrecorded\"})",
+  "new": "            rows.append({\"path\": entry[\"path\"], \"state\": \"match\"})",
+  "pkg": "scripts/check_vendored.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "vendored: 镜像文件被删掉也不拦",
+  "file": "scripts/check_vendored.py",
+  "old": "            red.append(f\"记录里的镜像文件不存在：{entry['path']}\")",
+  "new": "            pass",
+  "pkg": "scripts/check_vendored.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "vendored: 不比对 sha256（副本被本地改过就查不出来了）",
+  "file": "scripts/check_vendored.py",
+  "old": "        if actual != entry[\"sha256\"]:",
+  "new": "        if False:",
+  "pkg": "scripts/check_vendored.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "vendored: 漂移条目的状态写成 match（日志里看不出漂了）",
+  "file": "scripts/check_vendored.py",
+  "old": "            rows.append({\"path\": entry[\"path\"], \"state\": \"drift\"})",
+  "new": "            rows.append({\"path\": entry[\"path\"], \"state\": \"match\"})",
+  "pkg": "scripts/check_vendored.py",
+  "filter": "",
+  "runner": "python"
+ }
+]

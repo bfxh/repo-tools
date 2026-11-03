@@ -15,7 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tool: [snapshot, autoflow, gitflow, vendor, deps, secret_scan, ci_integrity, split, repo_doctor, release, hooks, profiles, mathref]
+        tool: [snapshot, autoflow, gitflow, vendor, deps, secret_scan, ci_integrity, split, repo_doctor,
+               release, hooks, profiles, mathref, agent_claims, check_handoff_sync, check_vendored]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
@@ -49,3 +50,16 @@ jobs:
           python-version: "3.12"
       - name: Fault-injection suite
         run: python -m unittest tests.test_chaos -v
+
+  vendored:
+    name: vendored mirrors (逐字对账)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: "3.12"
+      # 镜像文件只要被本地单独改过就判红：两份副本各自绿、规则互相矛盾是已经发生过的事
+      - name: Vendored mirrors match their recorded sha256
+        run: python3 scripts/check_vendored.py
