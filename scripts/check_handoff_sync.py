@@ -22,6 +22,8 @@ import re
 import sys
 
 A_ID = re.compile(r"A\d+")
+
+ITEM_ID = re.compile(r"^- \[[ x]\] \*\*(A\d+)\b")
 CHG_ID = re.compile(r"CHG-\d{4}-\d{2}-\d{2}-[A-Z]+")
 
 
@@ -38,16 +40,29 @@ def read_dir(root: pathlib.Path) -> tuple[dict[str, str], list[str]]:
     return texts, problems
 
 
+def own_id(line: str) -> str:
+    """只认这条**自己的**编号（`- [ ] **A7 · …**` 里紧跟着星号的那个）。
+
+    实测假警报：`- [ ] **A2 · …（A1 已合，本条已解除依赖）**` 里被引用的 A1 其实是 `[x]` 已完成项，
+    用整行的 整行的正则找法会把 A1 当成 open 项 ⇒ 摘要没提它就报"没人接"，而它根本不该被接。
+    """
+    match = ITEM_ID.match(line.strip())
+    return match.group(1) if match else ""
+
+
 def ledger_states(ledger: str) -> tuple[set[str], set[str]]:
     """返回 LEDGER 里 (open 的工作编号, done 的工作编号)。"""
     open_ids: set[str] = set()
     done_ids: set[str] = set()
     for line in ledger.splitlines():
         stripped = line.strip()
+        ident = own_id(stripped)
+        if not ident:
+            continue
         if stripped.startswith("- [ ]"):
-            open_ids.update(A_ID.findall(stripped))
+            open_ids.add(ident)
         elif stripped.startswith("- [x]"):
-            done_ids.update(A_ID.findall(stripped))
+            done_ids.add(ident)
     return open_ids, done_ids
 
 
@@ -227,6 +242,13 @@ def self_test() -> int:
           latest_chg("# t\n\n## CHG-2026-11-03-C · 新\n## CHG-2026-11-03-A · 旧\n"), "CHG-2026-11-03-C")
     check("CHANGES 空 ⇒ 最新是空串（不去比）", latest_chg("# 变更记录\n"), "")
     check("open/done 分类", ledger_states(ledger_ok), ({"A9"}, {"A8"}))
+    cross_lines = [
+        "- [ ] **A2 · EAC 重启与生效验证**（A1 已合，本条已解除依赖）",
+        "- [x] **A1 · 上一件事**",
+    ]
+    check("被引用的别号不算这条自己的编号（A1 已 DONE，不该被当成没人接的 open 项）",
+          ledger_states(chr(10).join(cross_lines)), ({"A2"}, {"A1"}))
+    check("非 A 编号的补充条目不认领 A108", own_id("- [ ] **S1 进度（A108 同日补充）**"), "")
 
     if failures:
         for line in failures:

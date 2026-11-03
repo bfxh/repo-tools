@@ -187,5 +187,41 @@
   "pkg": "scripts/check_handoff_sync.py",
   "filter": "",
   "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 取整段匹配而不是捕获组（编号变成 `- [ ] **A2`）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "    return match.group(1) if match else \"\"",
+  "new": "    return match.group(0) if match else \"\"",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 把 DONE 条目也算进 open（已完结项被报成没人接）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "        if stripped.startswith(\"- [ ]\"):",
+  "new": "        if True:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 不再收集 DONE 编号（该沉 CLOSED 的永远看不见）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "        elif stripped.startswith(\"- [x]\"):",
+  "new": "        elif False:",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
+ },
+ {
+  "name": "handoff-sync: 认不出星号里的编号（整本账被判成空）",
+  "file": "scripts/check_handoff_sync.py",
+  "old": "ITEM_ID = re.compile(r\"^- \\[[ x]\\] \\*\\*(A\\d+)\\b\")",
+  "new": "ITEM_ID = re.compile(r\"^- \\[[ x]\\] \\*\\*(A\\d)x\\b\")",
+  "pkg": "scripts/check_handoff_sync.py",
+  "filter": "",
+  "runner": "python"
  }
 ]
