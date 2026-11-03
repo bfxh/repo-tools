@@ -1,6 +1,7 @@
 # repo-tools
 
 四个小工具：**不依赖 git 的字节级回退**、**失败自动回退的命令包装**、**一句话提交 GitHub**、**依赖脱离体检 + 离线自足**。
+外加一个**项目默认值解析器**：默认 legacy，三进制/自研 GPU 只能按项目显式 opt-in。
 每个都带 `--self-test`（正例 + 逐项反证），CI 里逐个跑。
 
 ```bash
@@ -18,6 +19,12 @@ python3 scripts/gitflow.py diagnose --pr 210
 python3 scripts/deps.py plan                # 某个 crate 能不能整块摘出去、缺哪几块
 python3 scripts/deps.py detach <crate> --to <dir> --verify
 python3 scripts/vendor.py save / restore    # 离线自足开关
+
+python3 scripts/profiles.py show --repo .   # 看项目生效默认（默认 legacy）
+python3 scripts/profiles.py check --repo . --strict
+                                            # 三进制 + NVIDIA 默认报警；strict 判红
+python3 scripts/profiles.py init --repo . --profile trit
+                                            # 只写该项目 .trit/project.json
 ```
 
 ## 设计约束
@@ -34,10 +41,20 @@ python3 scripts/vendor.py save / restore    # 离线自足开关
 - `gitflow` 需要 `git` + `gh` 并已登录；其余工具只用标准库；
 - `deps` / `vendor` 只对 Cargo 工作区有意义。
 
+## 默认值治理（profiles）
+
+- **默认不改变任何项目**：没有 `.trit/project.json` = `legacy` = 上游构建 / NVIDIA / 旧文档。
+- **只按项目 opt-in**：`legacy → hybrid → trit`；不写全局用户配置。
+- **报警可关**：`profile=trit` 却用 `gpu.backend=nvidia` 默认警告；
+  `gpu.allow_nvidia=true` 或 `gpu.alarm=false` 关闭。
+- **成熟度闸门**：`profile=trit` 默认 `experimental`；`check --strict` 下警告判红。
+
+详细字段、优先级、迁移路线见 [docs/PROFILES.md](docs/PROFILES.md)。
+
 ## 自测
 
 ```bash
-for f in snapshot autoflow gitflow vendor deps; do python3 scripts/$f.py --self-test; done
+for f in snapshot autoflow gitflow vendor deps profiles; do python3 scripts/$f.py --self-test; done
 ```
 
 ## 状态
