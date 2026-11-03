@@ -1,7 +1,7 @@
 # repo-tools
 
 四个小工具：**不依赖 git 的字节级回退**、**失败自动回退的命令包装**、**一句话提交 GitHub**、**依赖脱离体检 + 离线自足**。
-外加一个**项目默认值解析器**：默认 legacy，三进制/自研 GPU 只能按项目显式 opt-in。
+外加一个**项目默认值解析器**（默认 legacy）和一个 **openai/math 参考索引**（默认 `verified=false`）。
 每个都带 `--self-test`（正例 + 逐项反证），CI 里逐个跑。
 
 ```bash
@@ -25,6 +25,10 @@ python3 scripts/profiles.py check --repo . --strict
                                             # 三进制 + NVIDIA 默认报警；strict 判红
 python3 scripts/profiles.py init --repo . --profile trit
                                             # 只写该项目 .trit/project.json
+
+python3 scripts/mathref.py sync --repo .    # 按需索引 openai/math
+python3 scripts/mathref.py search "Hodge"   # 查 family / Lean / 论文
+python3 scripts/mathref.py status --repo .  # 计数 + verified=false
 ```
 
 ## 设计约束
@@ -51,10 +55,19 @@ python3 scripts/profiles.py init --repo . --profile trit
 
 详细字段、优先级、迁移路线见 [docs/PROFILES.md](docs/PROFILES.md)。
 
+## 数学参考（openai/math）
+
+- 默认参考：https://github.com/openai/math（Apache-2.0，721 手稿 / 373 families）。
+- **原始研究目录，不是已验证结论**；每个 profile 默认 `mode=reference`、`verified=false`。
+- `mathref.py sync/search/show/status` 按需建本地索引；不 vendoring、不写全局、不参与构建。
+- `mode=dependency` 且 `verified=false` 时 `profiles.py check` 报警。
+
+详见 [docs/MATHREF.md](docs/MATHREF.md)。
+
 ## 自测
 
 ```bash
-for f in snapshot autoflow gitflow vendor deps profiles; do python3 scripts/$f.py --self-test; done
+for f in snapshot autoflow gitflow vendor deps profiles mathref; do python3 scripts/$f.py --self-test; done
 ```
 
 ## 状态
