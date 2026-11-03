@@ -33,6 +33,10 @@ MATURITY = ("experimental", "beta", "stable")
 BUILD_DEFAULTS = ("upstream", "trit")
 GPU_BACKENDS = ("nvidia", "trit", "auto")
 DOCS_MANAGERS = ("legacy", "trit")
+VCS_BACKENDS = ("git", "trit")
+VCS_HOSTINGS = ("github", "gitlab", "local")
+# 后端真实状态：写进判据文案，避免"设成 trit 就以为脱离了 git"
+VCS_IMPLEMENTED = ("git",)  # 不在这里的就是"未实现"
 MATH_MODES = ("reference", "dependency", "off")
 MATH_REFERENCE = "https://github.com/openai/math"
 
@@ -42,6 +46,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "build": {"default": "upstream", "features": []},
         "gpu": {"backend": "nvidia", "allow_nvidia": True, "alarm": True},
         "docs": {"manager": "legacy"},
+        "vcs": {"backend": "git", "hosting": "github"},
         "math": {"reference": MATH_REFERENCE, "mode": "reference", "verified": False},
     },
     "hybrid": {
@@ -49,6 +54,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "build": {"default": "upstream", "features": ["gpu"]},
         "gpu": {"backend": "trit", "allow_nvidia": True, "alarm": True},
         "docs": {"manager": "trit"},
+        "vcs": {"backend": "git", "hosting": "github"},
         "math": {"reference": MATH_REFERENCE, "mode": "reference", "verified": False},
     },
     "trit": {
@@ -56,15 +62,17 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "build": {"default": "trit", "features": ["gpu"]},
         "gpu": {"backend": "trit", "allow_nvidia": False, "alarm": True},
         "docs": {"manager": "trit"},
+        "vcs": {"backend": "git", "hosting": "github"},
         "math": {"reference": MATH_REFERENCE, "mode": "reference", "verified": False},
     },
 }
 
-TOP_KEYS = {"version", "profile", "maturity", "build", "gpu", "docs", "math"}
+TOP_KEYS = {"version", "profile", "maturity", "build", "gpu", "docs", "vcs", "math"}
 NESTED_KEYS = {
     "build": {"default", "features"},
     "gpu": {"backend", "allow_nvidia", "alarm"},
     "docs": {"manager"},
+    "vcs": {"backend", "hosting"},
     "math": {"reference", "mode", "verified"},
 }
 ENV_KEYS = {
@@ -75,6 +83,8 @@ ENV_KEYS = {
     "TRIT_GPU_BACKEND": ("gpu", "backend"),
     "TRIT_ALLOW_NVIDIA": ("gpu", "allow_nvidia"),
     "TRIT_ALARM": ("gpu", "alarm"),
+    "TRIT_VCS_BACKEND": ("vcs", "backend"),
+    "TRIT_VCS_HOSTING": ("vcs", "hosting"),
     "TRIT_MATH_REFERENCE": ("math", "reference"),
     "TRIT_MATH_MODE": ("math", "mode"),
     "TRIT_MATH_VERIFIED": ("math", "verified"),
@@ -171,6 +181,8 @@ def validate(effective: dict[str, Any], sources: dict[str, str]) -> list[str]:
         (("build", "default"), BUILD_DEFAULTS),
         (("gpu", "backend"), GPU_BACKENDS),
         (("docs", "manager"), DOCS_MANAGERS),
+        (("vcs", "backend"), VCS_BACKENDS),
+        (("vcs", "hosting"), VCS_HOSTINGS),
         (("math", "mode"), MATH_MODES),
     ]
     for path, allowed in checks:
@@ -225,6 +237,8 @@ def resolve(
         "gpu.allow_nvidia": "profile",
         "gpu.alarm": "profile",
         "docs.manager": "profile",
+        "vcs.backend": "profile",
+        "vcs.hosting": "profile",
         "math.reference": "profile",
         "math.mode": "profile",
         "math.verified": "profile",
@@ -239,6 +253,8 @@ def resolve(
         ("gpu", "allow_nvidia"),
         ("gpu", "alarm"),
         ("docs", "manager"),
+        ("vcs", "backend"),
+        ("vcs", "hosting"),
         ("math", "reference"),
         ("math", "mode"),
         ("math", "verified"),
@@ -274,6 +290,8 @@ def resolve(
         ("allow_nvidia", ("gpu", "allow_nvidia")),
         ("alarm", ("gpu", "alarm")),
         ("docs_manager", ("docs", "manager")),
+        ("vcs_backend", ("vcs", "backend")),
+        ("vcs_hosting", ("vcs", "hosting")),
         ("math_reference", ("math", "reference")),
         ("math_mode", ("math", "mode")),
         ("math_verified", ("math", "verified")),
@@ -296,6 +314,8 @@ def resolve(
                 ("gpu", "allow_nvidia"),
                 ("gpu", "alarm"),
                 ("docs", "manager"),
+                ("vcs", "backend"),
+                ("vcs", "hosting"),
                 ("math", "reference"),
                 ("math", "mode"),
                 ("math", "verified"),
@@ -311,6 +331,8 @@ def resolve(
                     ("gpu", "allow_nvidia"),
                     ("gpu", "alarm"),
                     ("docs", "manager"),
+                    ("vcs", "backend"),
+                    ("vcs", "hosting"),
                     ("math", "reference"),
                     ("math", "mode"),
                     ("math", "verified"),
@@ -349,6 +371,15 @@ def resolve(
         or effective["gpu"]["backend"] == "trit"
         or effective["docs"]["manager"] == "trit"
     )
+    # 传输/托管面：现在只有 git。要说清"哪些面已经换了、哪些面没换"，
+    # 而不是让 git 这件事隐形地当默认。
+    if effective["vcs"]["backend"] == "trit":
+        errors.append(
+            "vcs.backend=trit 未实现（已实现的只有 "
+            + "/".join(VCS_IMPLEMENTED)
+            + "）：没有变更集存储、没有 diff/合并、没有脱离 GitHub 的 CI 宿主；"
+            "snapshot.py 只按字节回滚本地文件，不是 git 的替代"
+        )
     if profile == "trit" and effective["maturity"] != "stable":
         warnings.append(
             f"profile=trit 仍是 {effective['maturity']}；成熟前请逐项目 opt-in，不要全局默认"
@@ -365,6 +396,15 @@ def resolve(
         )
     if effective["gpu"]["backend"] == "trit" and "gpu" not in effective["build"]["features"]:
         warnings.append("gpu.backend=trit 但 build.features 没有 gpu；构建不会编进 GPU 内核")
+    if (
+        using_trit
+        and effective["vcs"]["backend"] == "git"
+    ):
+        warnings.append(
+            f"协调面已换 trit（认领/回执/交接包在 trit-orch），"
+            f"传输与托管面仍是 git/{effective['vcs']['hosting']}——这是现状不是遗漏；"
+            "vcs.backend=trit 会判红，直到真出现替代实现"
+        )
     if effective["math"]["mode"] == "dependency" and not effective["math"]["verified"]:
         warnings.append(
             "openai/math 标为 dependency 但 verified=false；先改 reference 或完成验证"
@@ -392,6 +432,8 @@ def show(resolution: Resolution, fmt: str) -> int:
         print(f"TRIT_PROFILE={resolution.profile}")
         print(f"TRIT_MATURITY={resolution.effective['maturity']}")
         print(f"TRIT_BUILD_DEFAULT={resolution.effective['build']['default']}")
+        print(f"TRIT_VCS_BACKEND={resolution.effective['vcs']['backend']}")
+        print(f"TRIT_VCS_HOSTING={resolution.effective['vcs']['hosting']}")
         print(f"TRIT_BUILD_FEATURES={','.join(resolution.effective['build']['features'])}")
         print(f"TRIT_GPU_BACKEND={resolution.effective['gpu']['backend']}")
         print(f"TRIT_ALLOW_NVIDIA={str(resolution.effective['gpu']['allow_nvidia']).lower()}")
@@ -453,6 +495,8 @@ def overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
         "allow_nvidia": args.allow_nvidia,
         "alarm": args.alarm,
         "docs_manager": args.docs_manager,
+        "vcs_backend": args.vcs_backend,
+        "vcs_hosting": args.vcs_hosting,
         "math_reference": args.math_reference,
         "math_mode": args.math_mode,
         "math_verified": args.math_verified,
@@ -478,6 +522,8 @@ def add_overrides(parser: argparse.ArgumentParser) -> None:
         help="三进制 + NVIDIA 时是否报警",
     )
     parser.add_argument("--docs-manager", choices=DOCS_MANAGERS)
+    parser.add_argument("--vcs-backend", choices=VCS_BACKENDS)
+    parser.add_argument("--vcs-hosting", choices=VCS_HOSTINGS)
     parser.add_argument("--math-reference", help="默认 https://github.com/openai/math")
     parser.add_argument("--math-mode", choices=MATH_MODES)
     parser.add_argument(
@@ -596,6 +642,51 @@ def self_test() -> int:
             assert res.effective["gpu"]["backend"] == "trit"
             assert res.sources["gpu.backend"] == "auto(profile)"
 
+        def vcs_is_explicitly_git() -> None:
+            res = resolve(root / "vcs-repo-default", env={})
+            assert res.effective["vcs"] == {"backend": "git", "hosting": "github"}, res.effective["vcs"]
+            assert not res.errors, res.errors
+            assert res.sources["vcs.backend"] == "profile", res.sources["vcs.backend"]
+
+        def vcs_trit_profile_still_uses_git() -> None:
+            # profile=trit 也不得悄悄把传输面说成已替代：默认仍是 git，且必须出声
+            res = resolve(root / "vcs-repo-trit", env={}, cli={"profile": "trit"})
+            assert res.effective["vcs"]["backend"] == "git", res.effective["vcs"]
+            assert any("传输与托管面仍是 git" in w for w in res.warnings), res.warnings
+
+        def vcs_backend_trit_is_an_error_not_a_warning() -> None:
+            res = resolve(root / "vcs-repo-trit", env={}, cli={"vcs_backend": "trit"})
+            assert any("未实现" in e for e in res.errors), (res.errors, res.warnings)
+            # 判红不许降级成警告：降级等于"设了就以为脱离了 git"
+            assert not any("未实现" in w for w in res.warnings), res.warnings
+
+        def vcs_repo_and_env_override() -> None:
+            # 优先级链必须真的覆盖到 vcs 这一段（少了某一处元组，这里就退不回仓库配置）
+            over = root / "vcs-repo-over"
+            (over / ".trit").mkdir(parents=True)
+            (over / ".trit/project.json").write_text(
+                json.dumps({"version": 1, "profile": "legacy", "vcs": {"hosting": "gitlab"}}),
+                encoding="utf-8",
+            )
+            res = resolve(over, env={})
+            assert res.effective["vcs"]["hosting"] == "gitlab", res.effective["vcs"]
+            assert res.sources["vcs.hosting"] == "repo", res.sources["vcs.hosting"]
+            res2 = resolve(over, env={"TRIT_VCS_HOSTING": "local"})
+            assert res2.effective["vcs"]["hosting"] == "local", res2.effective["vcs"]
+            assert res2.sources["vcs.hosting"] == "env", res2.sources["vcs.hosting"]
+
+        def vcs_hosting_unknown_fails() -> None:
+            res = resolve(root / "vcs-repo-default", env={"TRIT_VCS_HOSTING": "svn"})
+            assert any("vcs.hosting 非法" in e for e in res.errors), res.errors
+
+        (root / "vcs-repo-default").mkdir()
+        (root / "vcs-repo-trit").mkdir()
+
+        case("vcs default is explicit git", vcs_is_explicitly_git)
+        case("profile=trit keeps git transport", vcs_trit_profile_still_uses_git)
+        case("vcs.backend=trit fails closed", vcs_backend_trit_is_an_error_not_a_warning)
+        case("vcs.hosting unknown fails", vcs_hosting_unknown_fails)
+        case("vcs repo/env override", vcs_repo_and_env_override)
         case("default legacy", default_legacy)
         case("math default reference", math_default_reference)
         case("math dependency warns", math_dependency_warns)
@@ -614,7 +705,7 @@ def self_test() -> int:
             print(f"FAIL self-test {failure}")
         print(f"self-test FAIL（{len(failures)} 项）")
         return 1
-    print("PASS self-test：12 个用例（默认/覆盖/报警/profile/初始化/auto/数学参考）")
+    print("PASS self-test：17 个用例（默认/覆盖/报警/profile/初始化/auto/数学参考/vcs 传输面）")
     return 0
 
 
